@@ -31,6 +31,9 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [tempApiUrl, setTempApiUrl] = useState('https://api.tu-zi.com/v1');
+  const [tempApiKey, setTempApiKey] = useState('');
 
   // 摄像头相关
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -163,9 +166,8 @@ function App() {
     }
 
     if (!settingsManager.hasApiKey()) {
-      const apiKey = prompt('请输入 API Key（从 https://api.tu-zi.com/token 获取）');
-      if (!apiKey) return;
-      settingsManager.updateConfig({ apiKey });
+      setShowSettings(true);
+      return;
     }
 
     setAppState('generating');
@@ -351,6 +353,60 @@ function App() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* API 设置弹窗 */}
+      {showSettings && (
+        <div className="settings-overlay" onClick={() => setShowSettings(false)}>
+          <div className="settings-container" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-header">
+              <h2>API 配置</h2>
+              <button className="btn-close" onClick={() => setShowSettings(false)}>✕</button>
+            </div>
+            <div className="settings-form">
+              <div className="settings-field">
+                <label>API 地址</label>
+                <input
+                  type="text"
+                  value={tempApiUrl}
+                  onChange={(e) => setTempApiUrl(e.target.value)}
+                  placeholder="https://api.tu-zi.com/v1"
+                  className="input-name"
+                />
+              </div>
+              <div className="settings-field">
+                <label>API Key</label>
+                <input
+                  type="password"
+                  value={tempApiKey}
+                  onChange={(e) => setTempApiKey(e.target.value)}
+                  placeholder="输入你的 API Key"
+                  className="input-name"
+                />
+                <p className="settings-hint">
+                  获取地址: <a href="https://api.tu-zi.com/token" target="_blank" rel="noopener noreferrer">https://api.tu-zi.com/token</a>
+                </p>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  if (tempApiKey.trim()) {
+                    settingsManager.updateConfig({
+                      baseUrl: tempApiUrl.trim() || 'https://api.tu-zi.com/v1',
+                      apiKey: tempApiKey.trim(),
+                    });
+                    setShowSettings(false);
+                    // 保存后自动开始生成
+                    handleGenerate();
+                  }
+                }}
+                disabled={!tempApiKey.trim()}
+              >
+                保存并继续
+              </button>
+            </div>
           </div>
         </div>
       )}
