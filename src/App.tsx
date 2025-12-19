@@ -5,36 +5,17 @@ import { generateCustomPrompt, DEFAULT_PROMPT_TEMPLATE } from './constants/dream
 import { IMAGE_MODELS } from './types';
 import './App.css';
 
-// 拍立得照片类型
-interface PolaroidPhoto {
+// 胶片/照片类型（在画板上）
+interface FilmPhoto {
   id: string;
-  photo: string;
+  originalPhoto: string;
   name: string;
   dream: string;
   date: string;
   result?: string;
-}
-
-// 待处理照片类型（在相机出口等待）
-interface PendingPhoto {
-  id: string;
-  photo: string;
-  date: string;
-  name: string;
-  dream: string;
   isGenerating: boolean;
-}
-
-// 弹出照片类型（AI生成完成后弹出）
-interface EjectedPhoto {
-  id: string;
-  photo: string;
-  result: string;
-  name: string;
-  dream: string;
-  date: string;
-  isEjecting: boolean;
-  isRevealing: boolean;
+  isDeveloping: boolean;
+  developProgress: number;
   position: { x: number; y: number };
   isDragging: boolean;
 }
@@ -57,15 +38,13 @@ function App() {
   const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 待处理的照片（在相机出口等待）
-  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
+  // 待确认的照片（拍照后弹窗编辑）
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDream, setEditDream] = useState('');
 
-  // 弹出的照片（AI生成完成后）
-  const [ejectedPhoto, setEjectedPhoto] = useState<EjectedPhoto | null>(null);
-
-  // 拍立得照片列表（右侧）
-  const [polaroids, setPolaroids] = useState<PolaroidPhoto[]>([]);
-  const [selectedPolaroid, setSelectedPolaroid] = useState<PolaroidPhoto | null>(null);
+  // 画板上的胶片/照片列表
+  const [films, setFilms] = useState<FilmPhoto[]>([]);
 
   // 历史记录
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -79,16 +58,12 @@ function App() {
   const [tempModel, setTempModel] = useState('gemini-3-pro-image-preview-vip');
   const [tempPrompt, setTempPrompt] = useState(DEFAULT_PROMPT_TEMPLATE);
 
-  // 编辑弹窗
-  const [showEditModal, setShowEditModal] = useState(false);
-
   // refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLDivElement>(null);
-  const photosSectionRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ id: string; startX: number; startY: number; offsetX: number; offsetY: number } | null>(null);
 
   // 加载历史记录和设置
   useEffect(() => {
@@ -136,9 +111,9 @@ function App() {
     };
   }, [startCamera]);
 
-  // 拍照 - 照片进入待处理状态
+  // 拍照 - 只捕获照片，弹窗确认
   const takePhoto = useCallback(() => {
-    if (!videoRef.current || pendingPhoto || ejectedPhoto) return;
+    if (!videoRef.current || capturedPhoto) return;
 
     const canvas = document.createElement('canvas');
     const video = videoRef.current;
@@ -149,7 +124,6 @@ function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 裁剪为正方形并镜像
     const offsetX = (video.videoWidth - size) / 2;
     const offsetY = (video.videoHeight - size) / 2;
     ctx.translate(size, 0);
@@ -157,27 +131,15 @@ function App() {
     ctx.drawImage(video, offsetX, offsetY, size, size, 0, 0, size, size);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
-
-    // 创建待处理照片
-    const newPendingPhoto: PendingPhoto = {
-      id: Date.now().toString(),
-      photo: dataUrl,
-      date: dateStr,
-      name: '',
-      dream: '',
-      isGenerating: false,
-    };
-
-    setPendingPhoto(newPendingPhoto);
-    setShowEditModal(true);
-  }, [pendingPhoto, ejectedPhoto]);
+    setCapturedPhoto(dataUrl);
+    setEditName('');
+    setEditDream('');
+  }, [capturedPhoto]);
 
   // 上传照片
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || pendingPhoto || ejectedPhoto) return;
+    if (!file || capturedPhoto) return;
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -196,49 +158,56 @@ function App() {
         ctx.drawImage(img, offsetX, offsetY, size, size, 0, 0, 640, 640);
 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        const now = new Date();
-        const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
-
-        // 创建待处理照片
-        const newPendingPhoto: PendingPhoto = {
-          id: Date.now().toString(),
-          photo: dataUrl,
-          date: dateStr,
-          name: '',
-          dream: '',
-          isGenerating: false,
-        };
-
-        setPendingPhoto(newPendingPhoto);
-        setShowEditModal(true);
+        setCapturedPhoto(dataUrl);
+        setEditName('');
+        setEditDream('');
       };
       img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  }, [pendingPhoto, ejectedPhoto]);
+  }, [capturedPhoto]);
 
-  // 生成图片
-  const handleGenerate = async () => {
-    if (!pendingPhoto || !pendingPhoto.dream.trim()) {
+  // 确认并开始生成 - 弹出黑色胶片
+  const handleConfirmAndGenerate = async () => {
+    if (!capturedPhoto || !editDream.trim()) {
       setError('请输入梦想');
       return;
     }
 
     if (!settingsManager.hasApiKey()) {
-      setShowEditModal(false);
       setShowSettings(true);
       return;
     }
 
-    setShowEditModal(false);
-    setPendingPhoto(prev => prev ? { ...prev, isGenerating: true } : null);
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+
+    // 创建新胶片（黑色状态）
+    const newFilm: FilmPhoto = {
+      id: Date.now().toString(),
+      originalPhoto: capturedPhoto,
+      name: editName.trim(),
+      dream: editDream.trim(),
+      date: dateStr,
+      isGenerating: true,
+      isDeveloping: false,
+      developProgress: 0,
+      position: { x: 50 + Math.random() * 100, y: 50 + Math.random() * 50 },
+      isDragging: false,
+    };
+
+    setFilms(prev => [...prev, newFilm]);
+    setCapturedPhoto(null);
+    setEditName('');
+    setEditDream('');
     setError(null);
 
+    // 开始AI生成
     try {
       const config = settingsManager.getConfig();
-      const promptText = generateCustomPrompt(pendingPhoto.dream.trim(), config.customPrompt);
-      const response = await generateImage(promptText, { image: pendingPhoto.photo });
+      const promptText = generateCustomPrompt(newFilm.dream, config.customPrompt);
+      const response = await generateImage(promptText, { image: newFilm.originalPhoto });
 
       if (response.data?.[0]?.url) {
         const imageUrl = response.data[0].url;
@@ -246,71 +215,84 @@ function App() {
         // 保存到历史记录
         const newItem: HistoryItem = {
           id: Date.now().toString(),
-          name: pendingPhoto.name.trim() || '未命名',
-          dream: pendingPhoto.dream.trim(),
-          originalPhoto: pendingPhoto.photo,
+          name: newFilm.name || '未命名',
+          dream: newFilm.dream,
+          originalPhoto: newFilm.originalPhoto,
           resultPhoto: imageUrl,
           timestamp: Date.now(),
         };
         saveHistory([newItem, ...history].slice(0, 50));
 
-        // 创建弹出照片
-        const newEjectedPhoto: EjectedPhoto = {
-          id: pendingPhoto.id,
-          photo: pendingPhoto.photo,
-          result: imageUrl,
-          name: pendingPhoto.name,
-          dream: pendingPhoto.dream,
-          date: pendingPhoto.date,
-          isEjecting: true,
-          isRevealing: false,
-          position: { x: 0, y: 0 },
-          isDragging: false,
-        };
+        // 开始显影动画
+        setFilms(prev => prev.map(f =>
+          f.id === newFilm.id
+            ? { ...f, result: imageUrl, isGenerating: false, isDeveloping: true }
+            : f
+        ));
 
-        setPendingPhoto(null);
-        setEjectedPhoto(newEjectedPhoto);
-
-        // 弹出动画完成后显示揭示效果
-        setTimeout(() => {
-          setEjectedPhoto(prev => prev ? { ...prev, isEjecting: false, isRevealing: true } : null);
-
-          // 揭示动画完成
-          setTimeout(() => {
-            setEjectedPhoto(prev => prev ? { ...prev, isRevealing: false } : null);
-          }, 1000);
-        }, 800);
+        // 显影动画（逐渐显示）
+        let progress = 0;
+        const developInterval = setInterval(() => {
+          progress += 2;
+          setFilms(prev => prev.map(f =>
+            f.id === newFilm.id
+              ? { ...f, developProgress: Math.min(progress, 100) }
+              : f
+          ));
+          if (progress >= 100) {
+            clearInterval(developInterval);
+            setFilms(prev => prev.map(f =>
+              f.id === newFilm.id
+                ? { ...f, isDeveloping: false }
+                : f
+            ));
+          }
+        }, 50);
 
       } else {
         throw new Error('生成失败，请重试');
       }
     } catch (e: any) {
       setError(e.message || '生成失败，请重试');
-      setPendingPhoto(prev => prev ? { ...prev, isGenerating: false } : null);
+      // 移除失败的胶片
+      setFilms(prev => prev.filter(f => f.id !== newFilm.id));
     }
   };
 
+  // 取消拍照
+  const cancelCapture = () => {
+    setCapturedPhoto(null);
+    setEditName('');
+    setEditDream('');
+  };
+
   // 拖拽开始
-  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!ejectedPhoto || ejectedPhoto.isEjecting || ejectedPhoto.isRevealing) return;
+  const handleDragStart = (e: React.MouseEvent | React.TouchEvent, filmId: string) => {
+    const film = films.find(f => f.id === filmId);
+    if (!film) return;
 
     e.preventDefault();
+    e.stopPropagation();
+
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
     dragRef.current = {
+      id: filmId,
       startX: clientX,
       startY: clientY,
-      offsetX: ejectedPhoto.position.x,
-      offsetY: ejectedPhoto.position.y,
+      offsetX: film.position.x,
+      offsetY: film.position.y,
     };
 
-    setEjectedPhoto(prev => prev ? { ...prev, isDragging: true } : null);
+    setFilms(prev => prev.map(f =>
+      f.id === filmId ? { ...f, isDragging: true } : f
+    ));
   };
 
   // 拖拽移动
   const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
-    if (!dragRef.current || !ejectedPhoto?.isDragging) return;
+    if (!dragRef.current) return;
 
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -318,53 +300,28 @@ function App() {
     const newX = dragRef.current.offsetX + (clientX - dragRef.current.startX);
     const newY = dragRef.current.offsetY + (clientY - dragRef.current.startY);
 
-    setEjectedPhoto(prev => prev ? {
-      ...prev,
-      position: { x: newX, y: newY }
-    } : null);
-  }, [ejectedPhoto?.isDragging]);
+    setFilms(prev => prev.map(f =>
+      f.id === dragRef.current?.id
+        ? { ...f, position: { x: newX, y: newY } }
+        : f
+    ));
+  }, []);
 
   // 拖拽结束
   const handleDragEnd = useCallback(() => {
-    if (!ejectedPhoto?.isDragging) return;
+    if (!dragRef.current) return;
 
-    // 检查是否拖到右侧照片区域
-    const photosSection = photosSectionRef.current;
-    if (photosSection && ejectedPhoto) {
-      const rect = photosSection.getBoundingClientRect();
-      const photoX = (cameraRef.current?.getBoundingClientRect().left || 0) +
-                     (cameraRef.current?.getBoundingClientRect().width || 0) / 2 +
-                     ejectedPhoto.position.x;
-
-      if (photoX > rect.left) {
-        // 添加到右侧照片列表
-        const newPolaroid: PolaroidPhoto = {
-          id: ejectedPhoto.id,
-          photo: ejectedPhoto.photo,
-          name: ejectedPhoto.name,
-          dream: ejectedPhoto.dream,
-          date: ejectedPhoto.date,
-          result: ejectedPhoto.result,
-        };
-
-        setPolaroids(prev => [newPolaroid, ...prev].slice(0, 6));
-        setEjectedPhoto(null);
-      } else {
-        // 弹回原位
-        setEjectedPhoto(prev => prev ? {
-          ...prev,
-          isDragging: false,
-          position: { x: 0, y: 0 }
-        } : null);
-      }
-    }
+    setFilms(prev => prev.map(f =>
+      f.id === dragRef.current?.id ? { ...f, isDragging: false } : f
+    ));
 
     dragRef.current = null;
-  }, [ejectedPhoto]);
+  }, []);
 
   // 监听全局拖拽事件
   useEffect(() => {
-    if (ejectedPhoto?.isDragging) {
+    const hasDragging = films.some(f => f.isDragging);
+    if (hasDragging) {
       window.addEventListener('mousemove', handleDragMove);
       window.addEventListener('mouseup', handleDragEnd);
       window.addEventListener('touchmove', handleDragMove);
@@ -377,25 +334,11 @@ function App() {
         window.removeEventListener('touchend', handleDragEnd);
       };
     }
-  }, [ejectedPhoto?.isDragging, handleDragMove, handleDragEnd]);
+  }, [films, handleDragMove, handleDragEnd]);
 
-  // 取消待处理照片
-  const cancelPendingPhoto = () => {
-    setPendingPhoto(null);
-    setShowEditModal(false);
-  };
-
-  // 取消弹出的照片
-  const cancelEjectedPhoto = () => {
-    setEjectedPhoto(null);
-  };
-
-  // 删除拍立得
-  const deletePolaroid = (id: string) => {
-    setPolaroids(prev => prev.filter(p => p.id !== id));
-    if (selectedPolaroid?.id === id) {
-      setSelectedPolaroid(null);
-    }
+  // 删除胶片
+  const deleteFilm = (id: string) => {
+    setFilms(prev => prev.filter(f => f.id !== id));
   };
 
   // 保存历史记录
@@ -421,11 +364,6 @@ function App() {
       customPrompt: tempPrompt,
     });
     setShowSettings(false);
-
-    // 如果有待生成的照片，继续生成
-    if (pendingPhoto && pendingPhoto.dream.trim() && tempApiKey.trim()) {
-      handleGenerate();
-    }
   };
 
   // 重置提示词
@@ -445,63 +383,15 @@ function App() {
         </button>
       </div>
 
-      {/* 主区域 - 左右布局 */}
-      <main className="main-area">
-        {/* 左侧相机区域 */}
-        <div className="camera-section" ref={cameraRef}>
-          {/* AI生成完成后弹出的照片 */}
-          {ejectedPhoto && (
-            <div
-              className={`ejected-photo ${ejectedPhoto.isEjecting ? 'ejecting' : ''} ${ejectedPhoto.isRevealing ? 'revealing' : ''} ${ejectedPhoto.isDragging ? 'dragging' : ''}`}
-              style={{
-                transform: `translate(${ejectedPhoto.position.x}px, ${ejectedPhoto.position.y}px)`,
-              }}
-              onMouseDown={handleDragStart}
-              onTouchStart={handleDragStart}
-            >
-              <div className="ejected-photo-inner">
-                {/* 原始照片（底层） */}
-                <div className="ejected-photo-original">
-                  <img src={ejectedPhoto.photo} alt="原照片" />
-                </div>
-                {/* AI生成结果（上层，带揭示动画） */}
-                <div className={`ejected-photo-result ${ejectedPhoto.isRevealing ? 'revealing' : ''}`}>
-                  <img src={ejectedPhoto.result} alt="AI生成" />
-                </div>
-              </div>
-              <div className="ejected-photo-info">
-                <span className="ejected-photo-dream">{ejectedPhoto.dream}</span>
-                <span className="ejected-photo-date">{ejectedPhoto.date}</span>
-                {!ejectedPhoto.isEjecting && !ejectedPhoto.isRevealing && (
-                  <span className="ejected-photo-hint">← 拖动到右侧保存</span>
-                )}
-              </div>
-              {/* 取消按钮 */}
-              {!ejectedPhoto.isEjecting && !ejectedPhoto.isRevealing && (
-                <button
-                  className="ejected-photo-cancel"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cancelEjectedPhoto();
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
-
+      {/* 主区域 - 画板背景 */}
+      <main className="canvas-area" ref={canvasRef}>
+        {/* 相机 */}
+        <div className="camera-section">
           <div className="camera-body">
-            {/* 闪光灯 */}
             <div className="camera-flash"></div>
-
-            {/* 取景器 */}
             <div className="camera-viewfinder"></div>
-
-            {/* 小镜头 */}
             <div className="camera-small-lens"></div>
 
-            {/* 主镜头 - 包含视频 */}
             <div className="camera-lens-outer">
               <div className="camera-lens-inner">
                 <video
@@ -519,94 +409,85 @@ function App() {
               </div>
             </div>
 
-            {/* 拍照按钮 */}
             <button
               className="camera-shutter"
               onClick={takePhoto}
-              disabled={!!pendingPhoto || !!ejectedPhoto}
+              disabled={!!capturedPhoto}
             >
               <div className="shutter-inner"></div>
             </button>
 
-            {/* 上传按钮 */}
             <button
               className="camera-upload"
               onClick={() => fileInputRef.current?.click()}
-              disabled={!!pendingPhoto || !!ejectedPhoto}
+              disabled={!!capturedPhoto}
             >
               📁
             </button>
 
-            {/* 照片出口 */}
-            <div className="camera-output">
-              {/* 待处理照片（在出口上方） */}
-              {pendingPhoto && (
-                <div className="pending-photo-wrapper">
-                  <div className={`pending-photo-card ${pendingPhoto.isGenerating ? 'generating' : ''}`}>
-                    <div className="pending-photo-image">
-                      <img src={pendingPhoto.photo} alt="待处理" />
-                      {pendingPhoto.isGenerating && (
-                        <div className="pending-photo-loading">
-                          <span>AI生成中...</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="pending-photo-info">
-                      <span className="pending-photo-hint">
-                        {pendingPhoto.isGenerating ? '请稍候' : '点击编辑'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <div className="camera-output"></div>
           </div>
         </div>
 
-        {/* 右侧拍立得照片区域 */}
-        <div className="photos-section" ref={photosSectionRef}>
-          <div className="polaroids-area">
-            {polaroids.length === 0 ? (
-              <div className="polaroids-empty">
-                <span>📸</span>
-                <p>拍照生成后拖动到此处</p>
-              </div>
-            ) : (
-              polaroids.map((polaroid, index) => (
+        {/* 画板上的胶片/照片 */}
+        {films.map((film) => (
+          <div
+            key={film.id}
+            className={`film-card ${film.isDragging ? 'dragging' : ''} ${film.isGenerating ? 'generating' : ''} ${film.isDeveloping ? 'developing' : ''}`}
+            style={{
+              left: film.position.x,
+              top: film.position.y,
+            }}
+            onMouseDown={(e) => handleDragStart(e, film.id)}
+            onTouchStart={(e) => handleDragStart(e, film.id)}
+          >
+            <div className="film-image">
+              {/* 黑色胶片底层 */}
+              <div className="film-black"></div>
+
+              {/* 显影中的照片 */}
+              {film.result && (
                 <div
-                  key={polaroid.id}
-                  className={`polaroid ${selectedPolaroid?.id === polaroid.id ? 'selected' : ''}`}
-                  style={{
-                    transform: `rotate(${(index % 2 === 0 ? 1 : -1) * (3 + index * 2)}deg)`,
-                    zIndex: polaroids.length - index,
-                  }}
-                  onClick={() => setSelectedPolaroid(polaroid)}
+                  className="film-photo"
+                  style={{ opacity: film.developProgress / 100 }}
                 >
-                  <div className="polaroid-image">
-                    {polaroid.result ? (
-                      <img src={polaroid.result} alt="结果" />
-                    ) : (
-                      <img src={polaroid.photo} alt="照片" />
-                    )}
-                  </div>
-                  <div className="polaroid-info">
-                    <span className="polaroid-dream">{polaroid.dream || 'MAY I MEET YOU'}</span>
-                    <span className="polaroid-date">{polaroid.date}</span>
-                  </div>
-                  <button
-                    className="polaroid-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deletePolaroid(polaroid.id);
-                    }}
-                  >
-                    ✕
-                  </button>
+                  <img src={film.result} alt="照片" />
                 </div>
-              ))
+              )}
+
+              {/* 生成中提示 */}
+              {film.isGenerating && (
+                <div className="film-loading">
+                  <span>显影中...</span>
+                </div>
+              )}
+            </div>
+            <div className="film-info">
+              <span className="film-dream">{film.dream}</span>
+              <span className="film-date">{film.date}</span>
+            </div>
+            {/* 删除按钮 */}
+            {!film.isGenerating && (
+              <button
+                className="film-delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteFilm(film.id);
+                }}
+              >
+                ✕
+              </button>
             )}
           </div>
-        </div>
+        ))}
+
+        {/* 空提示 */}
+        {films.length === 0 && (
+          <div className="canvas-hint">
+            <span>📸</span>
+            <p>拍照后胶片会出现在这里</p>
+          </div>
+        )}
       </main>
 
       {/* 隐藏的文件输入 */}
@@ -625,27 +506,27 @@ function App() {
         </div>
       )}
 
-      {/* 编辑弹窗 - 输入梦想并生成 */}
-      {showEditModal && pendingPhoto && (
-        <div className="polaroid-modal" onClick={cancelPendingPhoto}>
+      {/* 拍照确认弹窗 */}
+      {capturedPhoto && (
+        <div className="polaroid-modal" onClick={cancelCapture}>
           <div className="polaroid-modal-content" onClick={e => e.stopPropagation()}>
-            <button className="btn-close" onClick={cancelPendingPhoto}>✕</button>
+            <button className="btn-close" onClick={cancelCapture}>✕</button>
 
             <div className="polaroid-preview">
-              <img src={pendingPhoto.photo} alt="照片" />
+              <img src={capturedPhoto} alt="照片" />
             </div>
 
             <div className="polaroid-form">
               <input
                 type="text"
-                value={pendingPhoto.name}
-                onChange={(e) => setPendingPhoto(prev => prev ? { ...prev, name: e.target.value } : null)}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
                 placeholder="输入姓名（可选）"
                 className="input-name"
               />
               <textarea
-                value={pendingPhoto.dream}
-                onChange={(e) => setPendingPhoto(prev => prev ? { ...prev, dream: e.target.value } : null)}
+                value={editDream}
+                onChange={(e) => setEditDream(e.target.value)}
                 placeholder="输入你的梦想..."
                 className="input-dream"
                 rows={2}
@@ -653,10 +534,10 @@ function App() {
               <div className="polaroid-actions">
                 <button
                   className="btn-primary"
-                  onClick={handleGenerate}
-                  disabled={!pendingPhoto.dream.trim() || pendingPhoto.isGenerating}
+                  onClick={handleConfirmAndGenerate}
+                  disabled={!editDream.trim()}
                 >
-                  {pendingPhoto.isGenerating ? '生成中...' : '开始变装 ✨'}
+                  确认并生成 ✨
                 </button>
               </div>
             </div>
@@ -664,43 +545,7 @@ function App() {
         </div>
       )}
 
-      {/* 查看拍立得详情弹窗 */}
-      {selectedPolaroid && (
-        <div className="polaroid-modal" onClick={() => setSelectedPolaroid(null)}>
-          <div className="polaroid-modal-content" onClick={e => e.stopPropagation()}>
-            <button className="btn-close" onClick={() => setSelectedPolaroid(null)}>✕</button>
-
-            <div className="polaroid-preview">
-              {selectedPolaroid.result ? (
-                <img src={selectedPolaroid.result} alt="结果" />
-              ) : (
-                <img src={selectedPolaroid.photo} alt="照片" />
-              )}
-            </div>
-
-            <div className="polaroid-form">
-              <div className="polaroid-view-info">
-                <p className="view-name">{selectedPolaroid.name || '未命名'}</p>
-                <p className="view-dream">"{selectedPolaroid.dream || '无梦想'}"</p>
-                <p className="view-date">{selectedPolaroid.date}</p>
-              </div>
-              {selectedPolaroid.result && (
-                <div className="polaroid-actions">
-                  <a
-                    href={selectedPolaroid.result}
-                    download={`${selectedPolaroid.name || '梦想变装'}.png`}
-                    className="btn-download"
-                  >
-                    📥 保存图片
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 历史记录画廊 - 按名字分组 */}
+      {/* 历史记录画廊 */}
       {showHistory && (
         <div className="gallery-overlay" onClick={() => setShowHistory(false)}>
           <div className="gallery-container" onClick={(e) => e.stopPropagation()}>
@@ -715,7 +560,6 @@ function App() {
               </div>
             ) : (
               <div className="gallery-grouped">
-                {/* 按名字分组 */}
                 {Object.entries(
                   history.reduce((groups, item) => {
                     const name = item.name || '未命名';
