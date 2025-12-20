@@ -33,7 +33,8 @@ body {
 }
 
 .history-btn,
-.settings-btn {
+.settings-btn,
+.mute-btn {
   padding: 12px 24px;
   background: var(--card-bg);
   border: 3px solid var(--border-strong);
@@ -47,18 +48,26 @@ body {
   transition: all 0.1s ease;
 }
 
+.mute-btn {
+  padding: 10px 14px;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .settings-btn {
   background: var(--button-secondary-bg);
 }
 
 .history-btn:hover,
-.settings-btn:hover {
+.settings-btn:hover,
+.mute-btn:hover {
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 var(--border-strong);
 }
 
 .history-btn:active,
-.settings-btn:active {
+.settings-btn:active,
+.mute-btn:active {
   transform: translate(4px, 4px);
   box-shadow: 0 0 0 var(--border-strong);
 }
@@ -813,13 +822,28 @@ body {
   font-size: 32px;
 }
 
+.camera-placeholder.camera-off {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.camera-placeholder.camera-off span {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.camera-placeholder.camera-off small {
+  font-size: 12px;
+  color: #888;
+}
+
 /* 拍照按钮 - 圆形快门 */
 .camera-shutter {
   position: absolute;
-  top: 23.5%;
-  left: 60%;
-  width: 25px;
-  height: 25px;
+  top: 24%;
+  left: 61%;
+  width: 26px;
+  height: 26px;
   min-width: 0;
   padding: 0;
   background: transparent;
@@ -871,6 +895,32 @@ body {
 }
 
 .camera-upload:disabled {
+  cursor: not-allowed;
+}
+
+/* 摄像头开关按钮 - 左下角旋钮位置 */
+.camera-toggle {
+  position: absolute;
+  left: 15%;
+  top: 63%;
+  width: 40px;
+  height: 40px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s ease;
+}
+
+.camera-toggle:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.camera-toggle:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -1934,6 +1984,69 @@ body {
 
 .btn-secondary:hover {
   background: var(--bg-hover);
+}
+
+/* 音效设置列表 */
+.sound-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sound-setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sound-setting-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color-dark);
+}
+
+.sound-setting-item.enabled {
+  border-color: #667eea;
+}
+
+.sound-setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sound-setting-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.sound-setting-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.sound-setting-toggle {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.sound-setting-toggle.on {
+  background: #667eea;
+  color: white;
+}
+
+.sound-setting-toggle.off {
+  background: var(--border-color);
+  color: var(--text-tertiary);
 }
 
 /* 详情弹窗 */
