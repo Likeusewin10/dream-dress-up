@@ -4,11 +4,7 @@
 
 ## 演示
 
-### 上传照片
-![上传照片演示](./assets/upload-demo.gif)
-
-### 生成变装
-![生成变装演示](./assets/generate-demo.gif)
+![演示](./assets/demo.gif)
 
 ## 功能特点
 

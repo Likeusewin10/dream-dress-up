@@ -61,6 +61,7 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryItem | null>(null);
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<HistoryItem | null>(null);
 
   // 拖拽历史记录项
   const historyDragRef = useRef<{ id: string; startX: number; startY: number; offsetX: number; offsetY: number } | null>(null);
@@ -343,10 +344,30 @@ function App() {
             if (hasAddedToHistory) return;
             hasAddedToHistory = true;
 
-            // 显影完成后，保存到历史并移除胶片
+            // 显影完成后，获取实际位置，保存到历史并移除胶片
+            // 先获取胶片在屏幕上的实际位置
+            const filmElement = document.querySelector(`[data-film-id="${filmId}"]`);
+            const canvasElement = canvasRef.current;
+            let actualPosition = { x: 500, y: 150 }; // 默认位置
+
+            if (filmElement && canvasElement) {
+              const filmRect = filmElement.getBoundingClientRect();
+              const canvasRect = canvasElement.getBoundingClientRect();
+              actualPosition = {
+                x: filmRect.left - canvasRect.left,
+                y: filmRect.top - canvasRect.top,
+              };
+            }
+
             setFilms(prev => {
               const completedFilm = prev.find(f => f.id === filmId);
               if (completedFilm) {
+                // 如果用户拖拽过，使用拖拽后的位置；否则使用实际屏幕位置
+                const finalPosition = completedFilm.isDragging ||
+                  (completedFilm.position.x !== 130 && completedFilm.position.y !== 30)
+                    ? completedFilm.position
+                    : actualPosition;
+
                 // 添加到历史记录
                 const newItem: HistoryItem = {
                   id: Date.now().toString(),
@@ -355,7 +376,7 @@ function App() {
                   originalPhoto: completedFilm.originalPhoto,
                   resultPhoto: imageUrl,
                   timestamp: Date.now(),
-                  position: completedFilm.position,
+                  position: finalPosition,
                 };
                 // 延迟添加到 history，避免状态冲突
                 setTimeout(() => {
@@ -417,7 +438,7 @@ function App() {
 
     if (film.isEjecting || film.isGenerating || film.isDeveloping) {
       // 获取胶片元素当前的屏幕位置
-      const filmElement = (e.target as HTMLElement).closest('.ejecting-film');
+      const filmElement = (e.target as HTMLElement).closest('.side-result-film');
       if (filmElement && canvasRef.current) {
         const filmRect = filmElement.getBoundingClientRect();
         const canvasRect = canvasRef.current.getBoundingClientRect();
@@ -496,12 +517,24 @@ function App() {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
   }, []);
 
-  // 删除历史记录
-  const deleteHistoryItem = (id: string) => {
-    saveHistory(history.filter(item => item.id !== id));
-    if (selectedHistoryItem?.id === id) {
+  // 请求删除历史记录（显示确认弹窗）
+  const requestDeleteHistoryItem = (item: HistoryItem) => {
+    setDeleteConfirmItem(item);
+  };
+
+  // 确认删除历史记录
+  const confirmDeleteHistoryItem = () => {
+    if (!deleteConfirmItem) return;
+    saveHistory(history.filter(item => item.id !== deleteConfirmItem.id));
+    if (selectedHistoryItem?.id === deleteConfirmItem.id) {
       setSelectedHistoryItem(null);
     }
+    setDeleteConfirmItem(null);
+  };
+
+  // 取消删除
+  const cancelDelete = () => {
+    setDeleteConfirmItem(null);
   };
 
   // 记录是否真正拖动过（用于区分点击和拖动）
@@ -770,6 +803,7 @@ function App() {
             {films.filter(f => (f.isEjecting || f.isGenerating || f.isDeveloping) && !f.isDragging).map((film) => (
               <div
                 key={film.id}
+                data-film-id={film.id}
                 className={`side-result-film ${film.ejectProgress >= 100 ? 'visible' : ''}`}
                 style={{
                   transform: `translateX(${film.ejectProgress - 100}%)`,
@@ -867,7 +901,7 @@ function App() {
               onTouchStart={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                deleteHistoryItem(item.id);
+                requestDeleteHistoryItem(item);
               }}
             >
               ✕
@@ -939,7 +973,7 @@ function App() {
                         className="gallery-polaroid-delete"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteHistoryItem(item.id);
+                          requestDeleteHistoryItem(item);
                         }}
                       >
                         ✕
@@ -1102,6 +1136,22 @@ function App() {
               <p className="detail-name">{selectedHistoryItem.name}</p>
               <p className="detail-dream">"{selectedHistoryItem.dream}"</p>
               <p className="detail-time">{new Date(selectedHistoryItem.timestamp).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认弹窗 */}
+      {deleteConfirmItem && (
+        <div className="delete-confirm-overlay" onClick={cancelDelete}>
+          <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="delete-confirm-preview">
+              <img src={deleteConfirmItem.resultPhoto} alt="预览" />
+            </div>
+            <p className="delete-confirm-text">确定要删除这张照片吗？</p>
+            <div className="delete-confirm-actions">
+              <button className="btn-cancel" onClick={cancelDelete}>取消</button>
+              <button className="btn-delete" onClick={confirmDeleteHistoryItem}>确认删除</button>
             </div>
           </div>
         </div>
