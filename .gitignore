@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 自定义音效文件（用户本地）
+public/sounds/

@@ -14,6 +14,7 @@ import {
   allCategories,
   categoryNames,
   categoryDescriptions,
+  initAudio,
   type SoundSettings,
   type SoundCategory,
 } from './services/sound';
@@ -153,6 +154,9 @@ function App() {
 
     const template = allTemplates.find(t => t.id === savedTemplateId);
     setTempPrompt(template?.template || config.customPrompt || DEFAULT_PROMPT_TEMPLATE);
+
+    // 初始化音频系统（预加载自定义音效）
+    initAudio();
   }, []);
 
   // 启动摄像头

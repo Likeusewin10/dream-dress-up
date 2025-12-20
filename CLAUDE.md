@@ -31,7 +31,8 @@ src/
 ├── types/index.ts          # TypeScript 类型定义 + 图像模型配置
 ├── services/
 │   ├── settings.ts         # 设置管理器（localStorage + URL 参数）
-│   └── image-api.ts        # AI 图像生成 API 调用
+│   ├── image-api.ts        # AI 图像生成 API 调用
+│   └── sound.ts            # 音效服务（Web Audio API 合成）
 └── constants/dreams.ts     # 提示词模板定义
 ```
 
@@ -58,3 +59,19 @@ src/
 - 使用 CSS 变量实现深浅色主题，定义在 `src/index.css`
 - 通过 `@media (prefers-color-scheme: dark)` 自动切换
 - 主要变量：`--bg-primary`, `--text-primary`, `--card-bg`, `--border-color` 等
+
+### 音效系统
+
+- 默认使用 Web Audio API 合成音效，支持自定义音频文件替换
+- 音效类型：快门、上传、开关摄像头、确认、完成、错误、胶片弹出、显影、点击
+- 支持按类别控制开关：快门、相机、操作、反馈、动画、界面音效
+- 默认仅开启：快门、相机、动画音效
+- 设置持久化到 localStorage（key: `dream-dress-sound-settings`）
+- 主要 API：`playSound(type)`, `toggleMasterMute()`, `toggleCategory(category)`
+
+**自定义音效**：将音频文件放到 `public/sounds/` 目录，文件名对应音效类型：
+```
+shutter.mp3, upload.mp3, cameraOn.mp3, cameraOff.mp3, confirm.mp3,
+complete.mp3, error.mp3, eject.mp3, developing.mp3, click.mp3
+```
+支持格式：mp3、wav、ogg。有自定义文件时优先使用，否则用合成音效。

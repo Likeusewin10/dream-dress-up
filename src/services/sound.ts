@@ -1,4 +1,18 @@
-// 音效服务 - 使用 Web Audio API 合成音效
+// 音效服务 - 支持自定义音频文件，无文件时使用 Web Audio API 合成音效
+//
+// 自定义音效使用方法：
+// 将音频文件放到 public/sounds/ 目录，文件名对应音效类型：
+//   - shutter.mp3    拍照快门
+//   - upload.mp3     上传图片
+//   - cameraOn.mp3   开启摄像头
+//   - cameraOff.mp3  关闭摄像头
+//   - confirm.mp3    确认生成
+//   - complete.mp3   生成完成
+//   - error.mp3      生成失败
+//   - eject.mp3      胶片弹出
+//   - developing.mp3 显影进行中（循环播放）
+//   - click.mp3      统一点击音
+// 支持格式：mp3, wav, ogg
 
 // 音效类型
 export type SoundType =
@@ -65,16 +79,16 @@ export interface SoundSettings {
   categories: Record<SoundCategory, boolean>;  // 各类别开关
 }
 
-// 默认设置（全部开启）
+// 默认设置（仅开启快门、相机、动画音效）
 const defaultSettings: SoundSettings = {
   masterMute: false,
   categories: {
     shutter: true,
     camera: true,
-    operation: true,
-    feedback: true,
+    operation: false,
+    feedback: false,
     animation: true,
-    ui: true,
+    ui: false,
   },
 };
 
@@ -170,6 +184,93 @@ function getAudioContext(): AudioContext {
   }
   return audioContext;
 }
+
+// ============ 自定义音频文件支持 ============
+
+// 支持的音频格式
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg'];
+
+// 缓存已加载的自定义音频
+const customAudioCache: Map<SoundType, HTMLAudioElement> = new Map();
+
+// 标记哪些音效有自定义文件
+const hasCustomAudio: Set<SoundType> = new Set();
+
+// 预加载状态
+let preloadComplete = false;
+
+// 所有音效类型列表
+const allSoundTypes: SoundType[] = [
+  'shutter', 'upload', 'cameraOn', 'cameraOff', 'confirm',
+  'complete', 'error', 'eject', 'developing', 'click'
+];
+
+// 尝试加载单个音频文件
+async function tryLoadAudio(type: SoundType): Promise<HTMLAudioElement | null> {
+  for (const ext of AUDIO_EXTENSIONS) {
+    const url = `/sounds/${type}.${ext}`;
+    try {
+      const audio = new Audio();
+      await new Promise<void>((resolve, reject) => {
+        audio.oncanplaythrough = () => resolve();
+        audio.onerror = () => reject();
+        audio.src = url;
+      });
+      console.log(`✓ 已加载自定义音效: ${type}.${ext}`);
+      return audio;
+    } catch {
+      // 该格式文件不存在，继续尝试下一个
+    }
+  }
+  return null;
+}
+
+// 预加载所有自定义音频
+async function preloadCustomAudio(): Promise<void> {
+  if (preloadComplete) return;
+
+  const loadPromises = allSoundTypes.map(async (type) => {
+    const audio = await tryLoadAudio(type);
+    if (audio) {
+      customAudioCache.set(type, audio);
+      hasCustomAudio.add(type);
+    }
+  });
+
+  await Promise.all(loadPromises);
+  preloadComplete = true;
+
+  if (hasCustomAudio.size > 0) {
+    console.log(`音效系统: 已加载 ${hasCustomAudio.size} 个自定义音效`);
+  }
+}
+
+// 播放自定义音频（返回是否成功播放）
+function playCustomAudio(type: SoundType, loop: boolean = false): boolean {
+  if (!hasCustomAudio.has(type)) return false;
+
+  const cachedAudio = customAudioCache.get(type);
+  if (!cachedAudio) return false;
+
+  try {
+    // 克隆音频以支持重叠播放
+    const audio = cachedAudio.cloneNode() as HTMLAudioElement;
+    audio.loop = loop;
+    audio.play().catch(() => {});
+
+    // 如果是循环音效，保存引用以便后续停止
+    if (loop && type === 'developing') {
+      customDevelopingAudio = audio;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 自定义显影音频引用（用于停止循环）
+let customDevelopingAudio: HTMLAudioElement | null = null;
 
 // 播放简单音调
 function playTone(frequency: number, duration: number, type: OscillatorType = 'sine', volume: number = 0.2) {
@@ -318,6 +419,10 @@ let developingGain: GainNode | null = null;
 export function startDevelopingSound() {
   if (!canPlaySound('developing')) return;
 
+  // 优先使用自定义音频（循环播放）
+  if (playCustomAudio('developing', true)) return;
+
+  // 无自定义音频时使用合成音效
   try {
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') ctx.resume();
@@ -340,6 +445,14 @@ export function startDevelopingSound() {
 
 // 停止显影音效
 export function stopDevelopingSound() {
+  // 停止自定义音频
+  if (customDevelopingAudio) {
+    customDevelopingAudio.pause();
+    customDevelopingAudio.currentTime = 0;
+    customDevelopingAudio = null;
+  }
+
+  // 停止合成音效
   try {
     if (developingGain) {
       developingGain.gain.exponentialRampToValueAtTime(0.001, getAudioContext().currentTime + 0.1);
@@ -360,6 +473,10 @@ export function stopDevelopingSound() {
 export function playSound(type: SoundType) {
   if (!canPlaySound(type)) return;
 
+  // 优先使用自定义音频
+  if (playCustomAudio(type)) return;
+
+  // 无自定义音频时使用合成音效
   switch (type) {
     case 'shutter':
       playShutter();
@@ -401,6 +518,8 @@ export function playSound(type: SoundType) {
 export function initAudio() {
   try {
     getAudioContext();
+    // 预加载自定义音频文件
+    preloadCustomAudio();
   } catch (e) {
     console.warn('初始化音频失败:', e);
   }
