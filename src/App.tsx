@@ -71,6 +71,7 @@ function App() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editDream, setEditDream] = useState('');
+  const [generateCount, setGenerateCount] = useState(1); // 生成数量 1-4
 
   // 正在进入相机的照片（上传动画）
   const [enteringPhoto, setEnteringPhoto] = useState<string | null>(null);
@@ -126,6 +127,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; startX: number; startY: number; offsetX: number; offsetY: number } | null>(null);
+  const developingCountRef = useRef(0); // 跟踪正在显影的照片数量
 
   // 加载历史记录和设置
   useEffect(() => {
@@ -474,7 +476,139 @@ function App() {
     e.target.value = '';
   }, [capturedPhoto, enteringPhoto, triggerFlash]);
 
-  // 确认并开始生成 - 弹出黑色胶片
+  // 单张胶片的弹出和生成逻辑
+  const ejectAndGenerateFilm = async (film: FilmPhoto) => {
+    const filmId = film.id;
+
+    // 播放胶片弹出音效
+    playSound('eject');
+
+    // 胶片缓慢出现动画（渐入效果）
+    let ejectProgress = 0;
+    const ejectInterval = setInterval(() => {
+      ejectProgress += 1;
+      setFilms(prev => prev.map(f =>
+        f.id === filmId
+          ? { ...f, ejectProgress: Math.min(ejectProgress, 100) }
+          : f
+      ));
+
+      if (ejectProgress >= 100) {
+        clearInterval(ejectInterval);
+        setFilms(prev => prev.map(f =>
+          f.id === filmId
+            ? { ...f, isEjecting: false }
+            : f
+        ));
+      }
+    }, 50);
+
+    // 开始AI生成
+    try {
+      const config = settingsManager.getConfig();
+      const promptText = generateCustomPrompt(film.dream, config.customPrompt);
+      const response = await generateImage(promptText, { image: film.originalPhoto });
+
+      if (response.data?.[0]?.url) {
+        const imageUrl = response.data[0].url;
+
+        // 开始显影动画
+        setFilms(prev => prev.map(f =>
+          f.id === filmId
+            ? { ...f, result: imageUrl, isGenerating: false, isDeveloping: true }
+            : f
+        ));
+
+        // 播放显影音效（只在第一张开始显影时启动）
+        developingCountRef.current += 1;
+        if (developingCountRef.current === 1) {
+          startDevelopingSound();
+        }
+
+        // 显影动画（逐渐显示）
+        let progress = 0;
+        let hasAddedToHistory = false;
+        const developInterval = setInterval(() => {
+          progress += 1;
+
+          if (progress >= 100) {
+            clearInterval(developInterval);
+
+            // 停止显影音效（只在最后一张完成时停止）
+            developingCountRef.current -= 1;
+            if (developingCountRef.current === 0) {
+              stopDevelopingSound();
+            }
+            playSound('complete');
+
+            if (hasAddedToHistory) return;
+            hasAddedToHistory = true;
+
+            const filmElement = document.querySelector(`[data-film-id="${filmId}"]`);
+            const canvasElement = canvasRef.current;
+            let actualPosition = { x: 500, y: 150 };
+
+            if (filmElement && canvasElement) {
+              const filmRect = filmElement.getBoundingClientRect();
+              const canvasRect = canvasElement.getBoundingClientRect();
+              actualPosition = {
+                x: filmRect.left - canvasRect.left,
+                y: filmRect.top - canvasRect.top,
+              };
+            }
+
+            setFilms(prev => {
+              const completedFilm = prev.find(f => f.id === filmId);
+              if (completedFilm) {
+                const finalPosition = completedFilm.isDragging ||
+                  (completedFilm.position.x !== 130 && completedFilm.position.y !== 30)
+                    ? completedFilm.position
+                    : actualPosition;
+
+                const newItem: HistoryItem = {
+                  id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                  name: completedFilm.name || '',
+                  dream: completedFilm.dream,
+                  originalPhoto: completedFilm.originalPhoto,
+                  resultPhoto: imageUrl,
+                  timestamp: Date.now(),
+                  position: finalPosition,
+                };
+                setTimeout(() => {
+                  setHistory(prevHistory => {
+                    const newHistory = [newItem, ...prevHistory].slice(0, 50);
+                    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+                    return newHistory;
+                  });
+                }, 50);
+              }
+              return prev.filter(f => f.id !== filmId);
+            });
+          } else {
+            setFilms(prev => prev.map(f =>
+              f.id === filmId
+                ? { ...f, developProgress: progress }
+                : f
+            ));
+          }
+        }, 80);
+
+      } else {
+        throw new Error('生成失败，请重试');
+      }
+    } catch (e: any) {
+      const errorMsg = e.message || '生成失败，请重试';
+      setError(errorMsg);
+      playSound('error');
+      setFilms(prev => prev.map(f =>
+        f.id === filmId
+          ? { ...f, isGenerating: false, isFailed: true, errorMessage: errorMsg }
+          : f
+      ));
+    }
+  };
+
+  // 确认并开始生成 - 弹出黑色胶片（支持多张）
   const handleConfirmAndGenerate = async () => {
     if (!capturedPhoto || !editDream.trim()) {
       setError('请输入梦想');
@@ -490,169 +624,61 @@ function App() {
     const now = new Date();
     const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
 
-    // 创建新胶片（黑色状态，出现在相机上方）
-    const filmId = Date.now().toString();
-    // 胶片出现在相机上方
-    const filmX = 130;
-    const filmY = 30;
-
-    const newFilm: FilmPhoto = {
-      id: filmId,
-      originalPhoto: capturedPhoto,
-      name: editName.trim(),
-      dream: editDream.trim(),
-      date: dateStr,
-      isGenerating: true,
-      isDeveloping: false,
-      developProgress: 0,
-      position: { x: filmX, y: filmY },
-      isDragging: false,
-      isEjecting: true,
-      ejectProgress: 0,
-      isFailed: false,
-    };
+    // 保存当前表单数据
+    const photoData = capturedPhoto;
+    const nameData = editName.trim();
+    const dreamData = editDream.trim();
+    const count = generateCount;
 
     // 播放确认生成音效
     playSound('confirm');
 
-    setFilms(prev => [...prev, newFilm]);
+    // 清空表单
     setCapturedPhoto(null);
     setEditName('');
     setEditDream('');
+    setGenerateCount(1); // 重置为默认1张
     setError(null);
 
-    // 播放胶片弹出音效
-    playSound('eject');
-
-    // 胶片缓慢出现动画（渐入效果）- 更慢的速度
-    let ejectProgress = 0;
-    const ejectInterval = setInterval(() => {
-      ejectProgress += 1; // 更慢的增量
-      setFilms(prev => prev.map(f =>
-        f.id === filmId
-          ? { ...f, ejectProgress: Math.min(ejectProgress, 100) }
-          : f
-      ));
-
-      if (ejectProgress >= 100) {
-        clearInterval(ejectInterval);
-        setFilms(prev => prev.map(f =>
-          f.id === filmId
-            ? { ...f, isEjecting: false }
-            : f
-        ));
+    // 重新连接摄像头显示
+    setTimeout(() => {
+      if (videoRef.current && streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
       }
-    }, 50); // 更长的间隔
+    }, 50);
 
-    // 开始AI生成
-    try {
-      const config = settingsManager.getConfig();
-      const promptText = generateCustomPrompt(newFilm.dream, config.customPrompt);
-      const response = await generateImage(promptText, { image: newFilm.originalPhoto });
+    // 创建多张胶片并顺序弹出
+    for (let i = 0; i < count; i++) {
+      const filmId = Date.now().toString() + '-' + i;
+      // 每张胶片位置错开（向右下偏移）
+      const filmX = 130 + i * 30;
+      const filmY = 30 + i * 20;
 
-      if (response.data?.[0]?.url) {
-        const imageUrl = response.data[0].url;
+      const newFilm: FilmPhoto = {
+        id: filmId,
+        originalPhoto: photoData,
+        name: nameData,
+        dream: dreamData,
+        date: dateStr,
+        isGenerating: true,
+        isDeveloping: false,
+        developProgress: 0,
+        position: { x: filmX, y: filmY },
+        isDragging: false,
+        isEjecting: true,
+        ejectProgress: 0,
+        isFailed: false,
+      };
 
-        // 开始显影动画
-        setFilms(prev => prev.map(f =>
-          f.id === filmId
-            ? { ...f, result: imageUrl, isGenerating: false, isDeveloping: true }
-            : f
-        ));
-
-        // 播放显影音效
-        startDevelopingSound();
-
-        // 显影动画（逐渐显示）- 更慢的速度
-        let progress = 0;
-        let hasAddedToHistory = false; // 防止重复添加
-        const developInterval = setInterval(() => {
-          progress += 1; // 更慢的增量
-
-          if (progress >= 100) {
-            clearInterval(developInterval);
-
-            // 停止显影音效，播放完成音效
-            stopDevelopingSound();
-            playSound('complete');
-
-            // 防止重复添加到历史
-            if (hasAddedToHistory) return;
-            hasAddedToHistory = true;
-
-            // 显影完成后，获取实际位置，保存到历史并移除胶片
-            // 先获取胶片在屏幕上的实际位置
-            const filmElement = document.querySelector(`[data-film-id="${filmId}"]`);
-            const canvasElement = canvasRef.current;
-            let actualPosition = { x: 500, y: 150 }; // 默认位置
-
-            if (filmElement && canvasElement) {
-              const filmRect = filmElement.getBoundingClientRect();
-              const canvasRect = canvasElement.getBoundingClientRect();
-              actualPosition = {
-                x: filmRect.left - canvasRect.left,
-                y: filmRect.top - canvasRect.top,
-              };
-            }
-
-            setFilms(prev => {
-              const completedFilm = prev.find(f => f.id === filmId);
-              if (completedFilm) {
-                // 如果用户拖拽过，使用拖拽后的位置；否则使用实际屏幕位置
-                const finalPosition = completedFilm.isDragging ||
-                  (completedFilm.position.x !== 130 && completedFilm.position.y !== 30)
-                    ? completedFilm.position
-                    : actualPosition;
-
-                // 添加到历史记录
-                const newItem: HistoryItem = {
-                  id: Date.now().toString(),
-                  name: completedFilm.name || '',
-                  dream: completedFilm.dream,
-                  originalPhoto: completedFilm.originalPhoto,
-                  resultPhoto: imageUrl,
-                  timestamp: Date.now(),
-                  position: finalPosition,
-                };
-                // 延迟添加到 history，避免状态冲突
-                setTimeout(() => {
-                  setHistory(prevHistory => {
-                    // 检查是否已存在
-                    if (prevHistory.some(h => h.originalPhoto === newItem.originalPhoto && h.dream === newItem.dream)) {
-                      return prevHistory;
-                    }
-                    const newHistory = [newItem, ...prevHistory].slice(0, 50);
-                    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
-                    return newHistory;
-                  });
-                }, 50);
-              }
-              // 移除已完成的胶片
-              return prev.filter(f => f.id !== filmId);
-            });
-          } else {
-            // 更新显影进度
-            setFilms(prev => prev.map(f =>
-              f.id === filmId
-                ? { ...f, developProgress: progress }
-                : f
-            ));
-          }
-        }, 80); // 更长的间隔
-
-      } else {
-        throw new Error('生成失败，请重试');
-      }
-    } catch (e: any) {
-      const errorMsg = e.message || '生成失败，请重试';
-      setError(errorMsg);
-      playSound('error');
-      // 标记胶片为失败状态（保留在画板上，可重试）
-      setFilms(prev => prev.map(f =>
-        f.id === filmId
-          ? { ...f, isGenerating: false, isFailed: true, errorMessage: errorMsg }
-          : f
-      ));
+      // 延迟添加每张胶片（顺序弹出效果）
+      await new Promise<void>(resolve => {
+        setTimeout(() => {
+          setFilms(prev => [...prev, newFilm]);
+          // 开始弹出和生成（不等待完成）
+          ejectAndGenerateFilm(newFilm);
+          resolve();
+        }, i * 600); // 每张间隔 600ms
+      });
     }
   };
 
@@ -684,8 +710,11 @@ function App() {
             : f
         ));
 
-        // 播放显影音效
-        startDevelopingSound();
+        // 播放显影音效（只在第一张开始显影时启动）
+        developingCountRef.current += 1;
+        if (developingCountRef.current === 1) {
+          startDevelopingSound();
+        }
 
         // 显影动画
         let progress = 0;
@@ -695,7 +724,12 @@ function App() {
 
           if (progress >= 100) {
             clearInterval(developInterval);
-            stopDevelopingSound();
+
+            // 停止显影音效（只在最后一张完成时停止）
+            developingCountRef.current -= 1;
+            if (developingCountRef.current === 0) {
+              stopDevelopingSound();
+            }
             playSound('complete');
 
             if (hasAddedToHistory) return;
@@ -1164,6 +1198,20 @@ function App() {
                   className="input-dream"
                   rows={3}
                 />
+                <div className="generate-count-selector">
+                  <span className="count-label">生成数量</span>
+                  <div className="count-buttons">
+                    {[1, 2, 3, 4].map(count => (
+                      <button
+                        key={count}
+                        className={`count-btn ${generateCount === count ? 'active' : ''}`}
+                        onClick={() => { playSound('click'); setGenerateCount(count); }}
+                      >
+                        {count}张
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="side-form-actions">
                   <button className="btn-cancel" onClick={() => { playSound('click'); cancelCapture(); }}>取消</button>
                   <button

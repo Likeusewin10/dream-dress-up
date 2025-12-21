@@ -94,6 +94,16 @@ confirm.mp3, complete.mp3, error.mp3, eject.mp3, developing.mp3, click.mp3
 - 切换会播放机械转盘音效（modeSwitch）
 - 位置样式：`.camera-logo-btn`（App.css）、`.template-toast`（App.css）
 
+### 多张生成（抽卡模式）
+
+- 在梦想输入表单中可选择同时生成 1-4 张照片
+- 按钮组 UI：`1 张`、`2 张`、`3 张`、`4 张`，默认选中 1 张
+- 点击生成后，胶片按顺序弹出（每张间隔 600ms）
+- 多张胶片位置错开（向右下偏移 30px、20px）
+- 并行调用 API 生成，各自独立显影
+- 显影音效智能管理：第一张开始时播放，最后一张完成时停止
+- 状态：`generateCount`（1-4）、`developingCountRef`（正在显影的胶片计数）
+
 ### 分享功能
 
 - 点击照片查看大图，底部有「分享」按钮
