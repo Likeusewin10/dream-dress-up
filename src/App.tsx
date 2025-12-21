@@ -62,6 +62,7 @@ function App() {
   // 摄像头状态
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraTransition, setCameraTransition] = useState<'opening' | 'closing' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 待确认的照片（拍照后弹窗编辑）
@@ -204,19 +205,28 @@ function App() {
 
   // 切换摄像头开关
   const toggleCamera = useCallback(async () => {
+    if (cameraTransition) return; // 动画进行中，忽略点击
+
     if (streamRef.current) {
       // 摄像头开着，关闭它
       playSound('cameraOff');
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-      setCameraReady(false);
-      setCameraEnabled(false);
+      setCameraTransition('closing');
+
+      // 等待关闭动画
+      setTimeout(() => {
+        streamRef.current?.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+        setCameraReady(false);
+        setCameraEnabled(false);
+        setCameraTransition(null);
+      }, 400);
     } else {
       // 摄像头关着，打开它
       try {
+        setCameraTransition('opening');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
         });
@@ -226,14 +236,17 @@ function App() {
           setCameraReady(true);
           setCameraEnabled(true);
           playSound('cameraOn');
+          // 等待开启动画完成
+          setTimeout(() => setCameraTransition(null), 400);
         }
       } catch (error) {
         console.error('无法访问摄像头:', error);
         setError('无法访问摄像头');
         playSound('error');
+        setCameraTransition(null);
       }
     }
-  }, []);
+  }, [cameraTransition]);
 
   // 页面卸载时清理摄像头
   useEffect(() => {
@@ -959,13 +972,24 @@ function App() {
                     className="camera-video"
                     style={{ display: cameraEnabled ? 'block' : 'none' }}
                   />
-                  {!cameraEnabled ? (
+                  {!cameraEnabled && !cameraTransition ? (
                     <div className="camera-placeholder camera-off">
                       <span>📷</span>
                       <small>摄像头已关闭</small>
                     </div>
-                  ) : !cameraReady && (
+                  ) : !cameraReady && !cameraTransition && (
                     <div className="camera-placeholder">📷</div>
+                  )}
+                  {/* 光圈动画遮罩 */}
+                  {cameraTransition && (
+                    <div className={`camera-iris ${cameraTransition}`}>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                    </div>
                   )}
                 </>
               )}
