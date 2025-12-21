@@ -122,6 +122,8 @@ function App() {
 
   // API设置
   const [showSettings, setShowSettings] = useState(false);
+  const [showApiKeyWarning, setShowApiKeyWarning] = useState(false); // 是否显示 API Key 缺失警告
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
   const [tempApiUrl, setTempApiUrl] = useState('https://api.tu-zi.com/v1');
   const [tempApiKey, setTempApiKey] = useState('');
   const [tempModel, setTempModel] = useState('gemini-3-pro-image-preview-vip');
@@ -645,7 +647,12 @@ function App() {
     }
 
     if (!settingsManager.hasApiKey()) {
+      setShowApiKeyWarning(true);
       setShowSettings(true);
+      // 延迟聚焦到输入框（等待弹窗渲染）
+      setTimeout(() => {
+        apiKeyInputRef.current?.focus();
+      }, 100);
       return;
     }
 
@@ -1245,6 +1252,7 @@ function App() {
       templateId: tempTemplateId,
     } as any);
     setShowSettings(false);
+    setShowApiKeyWarning(false);
   };
 
   // 切换模板
@@ -1769,12 +1777,18 @@ function App() {
 
       {/* 设置弹窗 */}
       {showSettings && (
-        <div className="settings-overlay" onClick={() => { playSound('click'); setShowSettings(false); }}>
+        <div className="settings-overlay" onClick={() => { playSound('click'); setShowSettings(false); setShowApiKeyWarning(false); }}>
           <div className="settings-container" onClick={(e) => e.stopPropagation()}>
             <div className="settings-header">
               <h2>⚙️ 设置</h2>
-              <button className="btn-close" onClick={() => { playSound('click'); setShowSettings(false); }}>✕</button>
+              <button className="btn-close" onClick={() => { playSound('click'); setShowSettings(false); setShowApiKeyWarning(false); }}>✕</button>
             </div>
+            {/* API Key 缺失警告 */}
+            {showApiKeyWarning && (
+              <div className="api-key-warning">
+                ⚠️ 需要填写 API Key 才能生成图片
+              </div>
+            )}
             <div className="settings-form">
               <div className="settings-field">
                 <label>API 地址</label>
@@ -1786,14 +1800,21 @@ function App() {
                   className="input-name"
                 />
               </div>
-              <div className="settings-field">
-                <label>API Key</label>
+              <div className={`settings-field ${showApiKeyWarning ? 'highlight' : ''}`}>
+                <label>API Key {showApiKeyWarning && <span className="required-mark">*必填</span>}</label>
                 <input
+                  ref={apiKeyInputRef}
                   type="password"
                   value={tempApiKey}
-                  onChange={(e) => setTempApiKey(e.target.value)}
+                  onChange={(e) => {
+                    setTempApiKey(e.target.value);
+                    // 输入后清除警告高亮
+                    if (e.target.value.trim()) {
+                      setShowApiKeyWarning(false);
+                    }
+                  }}
                   placeholder="输入你的 API Key"
-                  className="input-name"
+                  className={`input-name ${showApiKeyWarning ? 'highlight' : ''}`}
                 />
                 <p className="settings-hint">
                   获取地址: <a href="https://api.tu-zi.com/token" target="_blank" rel="noopener noreferrer">https://api.tu-zi.com/token</a>
