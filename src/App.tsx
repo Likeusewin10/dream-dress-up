@@ -42,6 +42,8 @@ interface FilmPhoto {
   isDragging: boolean;
   isEjecting: boolean;
   ejectProgress: number; // 0-100 弹出进度
+  isFailed: boolean;     // 生成失败
+  errorMessage?: string; // 错误信息
 }
 
 // 历史记录类型（带位置信息）
@@ -100,7 +102,12 @@ function App() {
 
   // 模板切换提示状态
   const [templateToast, setTemplateToast] = useState<{ name: string; index: number; total: number } | null>(null);
-  const templateSwitchRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; isLongPress: boolean }>({ timer: null, isLongPress: false });
+  const templateSwitchRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    isLongPress: boolean;
+    isPressed: boolean;  // 是否真正按下了
+    lastSwitchTime: number;  // 上次切换时间，防抖用
+  }>({ timer: null, isLongPress: false, isPressed: false, lastSwitchTime: 0 });
 
   // API设置
   const [showSettings, setShowSettings] = useState(false);
@@ -317,7 +324,13 @@ function App() {
   }, [templates, tempTemplateId]);
 
   // Logo 按钮 - 按下开始
-  const handleLogoPress = useCallback(() => {
+  const handleLogoPress = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault(); // 防止触摸设备同时触发 mouse 和 touch 事件
+
+    // 如果已经按下，忽略（防止重复触发）
+    if (templateSwitchRef.current.isPressed) return;
+
+    templateSwitchRef.current.isPressed = true;
     templateSwitchRef.current.isLongPress = false;
 
     // 设置长按定时器（500ms）
@@ -335,17 +348,36 @@ function App() {
 
   // Logo 按钮 - 松开
   const handleLogoRelease = useCallback(() => {
+    // 如果没有按下状态，忽略（防止 mouseLeave 误触发）
+    if (!templateSwitchRef.current.isPressed) return;
+
     // 清除长按定时器
     if (templateSwitchRef.current.timer) {
       clearTimeout(templateSwitchRef.current.timer);
       templateSwitchRef.current.timer = null;
     }
 
-    // 如果不是长按，则执行单击切换
-    if (!templateSwitchRef.current.isLongPress) {
+    // 如果不是长按，则执行单击切换（带防抖，300ms内不重复触发）
+    const now = Date.now();
+    if (!templateSwitchRef.current.isLongPress && now - templateSwitchRef.current.lastSwitchTime > 300) {
+      templateSwitchRef.current.lastSwitchTime = now;
       handleTemplateCycle();
     }
+
+    // 重置按下状态
+    templateSwitchRef.current.isPressed = false;
   }, [handleTemplateCycle]);
+
+  // Logo 按钮 - 鼠标离开（只取消长按，不触发切换）
+  const handleLogoLeave = useCallback(() => {
+    // 清除长按定时器
+    if (templateSwitchRef.current.timer) {
+      clearTimeout(templateSwitchRef.current.timer);
+      templateSwitchRef.current.timer = null;
+    }
+    // 重置状态，但不触发切换
+    templateSwitchRef.current.isPressed = false;
+  }, []);
 
   // 触发闪光效果
   const triggerFlash = useCallback(() => {
@@ -477,6 +509,7 @@ function App() {
       isDragging: false,
       isEjecting: true,
       ejectProgress: 0,
+      isFailed: false,
     };
 
     // 播放确认生成音效
@@ -611,11 +644,115 @@ function App() {
         throw new Error('生成失败，请重试');
       }
     } catch (e: any) {
-      setError(e.message || '生成失败，请重试');
+      const errorMsg = e.message || '生成失败，请重试';
+      setError(errorMsg);
       playSound('error');
-      // 移除失败的胶片
-      setFilms(prev => prev.filter(f => f.id !== filmId));
+      // 标记胶片为失败状态（保留在画板上，可重试）
+      setFilms(prev => prev.map(f =>
+        f.id === filmId
+          ? { ...f, isGenerating: false, isFailed: true, errorMessage: errorMsg }
+          : f
+      ));
     }
+  };
+
+  // 重试生成失败的胶片
+  const handleRetryGenerate = async (filmId: string) => {
+    const film = films.find(f => f.id === filmId);
+    if (!film || !film.isFailed) return;
+
+    // 重置状态为生成中
+    setFilms(prev => prev.map(f =>
+      f.id === filmId
+        ? { ...f, isFailed: false, isGenerating: true, errorMessage: undefined }
+        : f
+    ));
+    setError(null);
+
+    try {
+      const config = settingsManager.getConfig();
+      const promptText = generateCustomPrompt(film.dream, config.customPrompt);
+      const response = await generateImage(promptText, { image: film.originalPhoto });
+
+      if (response.data?.[0]?.url) {
+        const imageUrl = response.data[0].url;
+
+        // 开始显影动画
+        setFilms(prev => prev.map(f =>
+          f.id === filmId
+            ? { ...f, result: imageUrl, isGenerating: false, isDeveloping: true }
+            : f
+        ));
+
+        // 播放显影音效
+        startDevelopingSound();
+
+        // 显影动画
+        let progress = 0;
+        let hasAddedToHistory = false;
+        const developInterval = setInterval(() => {
+          progress += 1;
+
+          if (progress >= 100) {
+            clearInterval(developInterval);
+            stopDevelopingSound();
+            playSound('complete');
+
+            if (hasAddedToHistory) return;
+            hasAddedToHistory = true;
+
+            setFilms(prev => {
+              const completedFilm = prev.find(f => f.id === filmId);
+              if (completedFilm) {
+                const newItem: HistoryItem = {
+                  id: Date.now().toString(),
+                  name: completedFilm.name || '',
+                  dream: completedFilm.dream,
+                  originalPhoto: completedFilm.originalPhoto,
+                  resultPhoto: imageUrl,
+                  timestamp: Date.now(),
+                  position: completedFilm.position,
+                };
+                setTimeout(() => {
+                  setHistory(prevHistory => {
+                    if (prevHistory.some(h => h.originalPhoto === newItem.originalPhoto && h.dream === newItem.dream)) {
+                      return prevHistory;
+                    }
+                    const newHistory = [newItem, ...prevHistory].slice(0, 50);
+                    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+                    return newHistory;
+                  });
+                }, 50);
+              }
+              return prev.filter(f => f.id !== filmId);
+            });
+          } else {
+            setFilms(prev => prev.map(f =>
+              f.id === filmId
+                ? { ...f, developProgress: progress }
+                : f
+            ));
+          }
+        }, 80);
+      } else {
+        throw new Error('生成失败，请重试');
+      }
+    } catch (e: any) {
+      const errorMsg = e.message || '生成失败，请重试';
+      setError(errorMsg);
+      playSound('error');
+      setFilms(prev => prev.map(f =>
+        f.id === filmId
+          ? { ...f, isGenerating: false, isFailed: true, errorMessage: errorMsg }
+          : f
+      ));
+    }
+  };
+
+  // 删除失败的胶片
+  const handleDeleteFailedFilm = (filmId: string) => {
+    playSound('click');
+    setFilms(prev => prev.filter(f => f.id !== filmId));
   };
 
   // 取消拍照
@@ -1111,7 +1248,7 @@ function App() {
               className="camera-logo-btn"
               onMouseDown={handleLogoPress}
               onMouseUp={handleLogoRelease}
-              onMouseLeave={handleLogoRelease}
+              onMouseLeave={handleLogoLeave}
               onTouchStart={handleLogoPress}
               onTouchEnd={handleLogoRelease}
               title="点击切换风格模板，长按打开设置"
@@ -1150,32 +1287,70 @@ function App() {
 
           {/* 右侧 - 生成的照片从这里滑出 */}
           <div className="side-result">
-            {films.filter(f => (f.isEjecting || f.isGenerating || f.isDeveloping) && !f.isDragging).map((film) => (
+            {films.filter(f => (f.isEjecting || f.isGenerating || f.isDeveloping || f.isFailed) && !f.isDragging).map((film) => (
               <div
                 key={film.id}
                 data-film-id={film.id}
-                className={`side-result-film ${film.ejectProgress >= 100 ? 'visible' : ''}`}
+                className={`side-result-film ${film.ejectProgress >= 100 ? 'visible' : ''} ${film.isFailed ? 'failed' : ''}`}
                 style={{
                   transform: `translateX(${film.ejectProgress - 100}%)`,
                 }}
-                onMouseDown={(e) => handleDragStart(e, film.id)}
-                onTouchStart={(e) => handleDragStart(e, film.id)}
+                onMouseDown={(e) => !film.isFailed && handleDragStart(e, film.id)}
+                onTouchStart={(e) => !film.isFailed && handleDragStart(e, film.id)}
               >
                 <div className="film-image">
-                  {film.result && (
+                  {/* 失败状态显示原图 */}
+                  {film.isFailed && (
+                    <div className="film-photo">
+                      <img src={film.originalPhoto} alt="原图" />
+                    </div>
+                  )}
+                  {film.result && !film.isFailed && (
                     <div className="film-photo">
                       <img src={film.result} alt="照片" />
                     </div>
                   )}
-                  <div
-                    className="film-black"
-                    style={{ opacity: !film.result ? 1 : 1 - (film.developProgress / 100) }}
-                  ></div>
+                  {!film.isFailed && (
+                    <div
+                      className="film-black"
+                      style={{ opacity: !film.result ? 1 : 1 - (film.developProgress / 100) }}
+                    ></div>
+                  )}
+                  {/* 失败遮罩层 */}
+                  {film.isFailed && (
+                    <div className="film-failed-overlay">
+                      <span className="film-failed-icon">✕</span>
+                      <span className="film-failed-text">生成失败</span>
+                    </div>
+                  )}
                 </div>
                 <div className="film-info">
                   <span className="film-dream">{film.dream}</span>
                   <span className="film-date">{film.date}</span>
                 </div>
+                {/* 失败状态的操作按钮 */}
+                {film.isFailed && (
+                  <div className="film-failed-actions">
+                    <button
+                      className="film-retry-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRetryGenerate(film.id);
+                      }}
+                    >
+                      重试
+                    </button>
+                    <button
+                      className="film-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFailedFilm(film.id);
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

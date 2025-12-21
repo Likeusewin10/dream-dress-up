@@ -47,7 +47,15 @@ src/
 
 - `films: FilmPhoto[]` - 正在生成/显影中的胶片（画板上可拖拽）
 - `history: HistoryItem[]` - 已完成的照片（持久化到 localStorage）
-- 胶片状态流转：`isEjecting` → `isGenerating` → `isDeveloping` → 完成
+- 胶片状态流转：`isEjecting` → `isGenerating` → `isDeveloping` → 完成（或 `isFailed`）
+
+### 生成失败重试
+
+- 生成失败后胶片保留在原位，显示原图 + 红色遮罩层
+- 遮罩显示 "✕ 生成失败"，下方有「重试」和「删除」按钮
+- 点击重试会使用原有照片和梦想描述重新调用 API
+- 主要函数：`handleRetryGenerate(filmId)`, `handleDeleteFailedFilm(filmId)`
+- 样式：`.film-failed-overlay`, `.film-retry-btn`, `.film-delete-btn`（App.css）
 
 ### API 集成
 

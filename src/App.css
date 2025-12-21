@@ -2680,6 +2680,83 @@ body {
   }
 }
 
+/* 胶片失败状态样式 */
+.side-result-film.failed {
+  cursor: default;
+}
+
+.film-failed-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(239, 68, 68, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  z-index: 5;
+}
+
+.film-failed-icon {
+  font-size: 28px;
+  color: white;
+  font-weight: bold;
+}
+
+.film-failed-text {
+  font-size: 12px;
+  color: white;
+  font-weight: 500;
+}
+
+.film-failed-actions {
+  position: absolute;
+  bottom: -45px;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.film-retry-btn,
+.film-delete-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 15px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.film-retry-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.film-retry-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.film-delete-btn {
+  background: var(--bg-tertiary, #f0f0f0);
+  color: var(--text-secondary, #666);
+  border: 1px solid var(--border-color, #ddd);
+}
+
+.film-delete-btn:hover {
+  background: #ef4444;
+  color: white;
+  border-color: #ef4444;
+}
+
 /* 光圈中心圆形遮罩效果 */
 .camera-iris::after {
   content: '';
