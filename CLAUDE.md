@@ -107,9 +107,25 @@ confirm.mp3, complete.mp3, error.mp3, eject.mp3, developing.mp3, click.mp3
   - `processMediaFile(file)` - 处理上传的图片/视频
   - `captureVideoFrame(video)` - 从视频截取当前帧
 
+### 自动/手动模式
+
+- 相机中央有「手动/自动」切换按钮，默认为手动模式
+- **手动模式**：拍照后弹出表单填写梦想描述，确认后生成
+- **自动模式**：拍照后直接使用当前自动模板生成，跳过填写步骤
+- 4 个内置自动模板（不可删除）：
+  - 👸 童话公主 - 迪士尼风格
+  - 🦸 超级英雄 - 漫威/DC 风格
+  - 🧙 魔法师 - 哈利波特风格
+  - ⚔️ 侠客 - 中国武侠风格
+- 支持在设置面板添加自定义自动模板（图标+名称+提示词）
+- 自动模式下点击 Logo 切换自动模板（而非手动模式的风格模板）
+- 自定义自动模板持久化到 localStorage（key: `dream-dress-auto-templates`）
+- 状态：`isAutoMode`、`autoTemplates`、`currentAutoTemplateIndex`
+- 样式：`.camera-mode-switch`（App.css）
+
 ### 模板快速切换
 
-- **点击** 相机左上角 Logo 区域：循环切换到下一个风格模板
+- **点击** 相机左上角 Logo 区域：循环切换到下一个风格模板（手动模式）或自动模板（自动模式）
 - **长按**（500ms）：打开设置面板并自动滚动到模板区域
 - 切换时显示 LCD 复古风格提示：`✨ 2/5 吉卜力风格`（序号/总数 + 模板名）
 - 提示 2.5 秒后自动消失

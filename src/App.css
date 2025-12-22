@@ -3316,3 +3316,212 @@ body {
 .virtual-media-delete:hover {
   background: #dc2626;
 }
+
+/* =========================================
+   自动/手动模式切换按钮 - LCD风格
+   ========================================= */
+
+.camera-mode-switch {
+  position: absolute;
+  top: 27%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  z-index: 15;
+  font-family: 'Courier New', monospace;
+  outline: none;
+}
+
+.camera-mode-switch:hover,
+.camera-mode-switch:focus,
+.camera-mode-switch:active {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+
+.camera-mode-switch .mode-text {
+  display: block;
+  color: #000;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.camera-mode-switch.auto .mode-text {
+  color: #000;
+}
+
+/* =========================================
+   自动模式模板列表样式
+   ========================================= */
+
+.auto-template-hint {
+  margin-bottom: 12px !important;
+}
+
+.auto-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auto-template-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--card-bg, #f8f9fa);
+  border: 2px solid var(--border-color, #dee2e6);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auto-template-item:hover {
+  background: var(--bg-secondary, #e9ecef);
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.auto-template-item.active {
+  background: var(--primary-bg, #dbeafe);
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.auto-template-icon {
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary, #e9ecef);
+  border-radius: 6px;
+}
+
+.auto-template-item.active .auto-template-icon {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  text-shadow: none;
+}
+
+.auto-template-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #1f2937);
+}
+
+.auto-template-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-secondary, #e9ecef);
+  color: var(--text-secondary, #6b7280);
+  border-radius: 4px;
+}
+
+.auto-template-delete {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+.auto-template-item:hover .auto-template-delete {
+  opacity: 1;
+}
+
+.auto-template-delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.auto-template-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 2px dashed var(--border-color, #dee2e6);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary, #6b7280);
+  transition: all 0.2s ease;
+}
+
+.auto-template-add:hover {
+  border-color: var(--primary-color, #3b82f6);
+  color: var(--primary-color, #3b82f6);
+  background: var(--primary-bg, #dbeafe);
+}
+
+/* 添加自动模板表单 */
+.add-auto-template-field {
+  background: var(--bg-secondary, #f3f4f6);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.add-auto-template-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.add-auto-template-row .input-icon {
+  width: 60px;
+  text-align: center;
+  font-size: 18px;
+}
+
+.add-auto-template-row .input-name {
+  flex: 1;
+}
+
+.add-auto-template-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* 深色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .auto-template-item {
+    background: var(--card-bg, #374151);
+    border-color: var(--border-color, #4b5563);
+  }
+
+  .auto-template-item:hover {
+    background: var(--bg-secondary, #4b5563);
+  }
+
+  .auto-template-item.active {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: var(--primary-color, #3b82f6);
+  }
+
+  .auto-template-icon {
+    background: var(--bg-secondary, #4b5563);
+  }
+
+  .add-auto-template-field {
+    background: var(--bg-secondary, #374151);
+  }
+}
