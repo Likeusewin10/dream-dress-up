@@ -2398,6 +2398,16 @@ body {
 .detail-image-box {
   flex: 1;
   position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.detail-image-box:hover {
+  transform: scale(1.02);
+}
+
+.detail-image-box:active {
+  transform: scale(0.98);
 }
 
 .detail-image-box img {
@@ -2442,6 +2452,31 @@ body {
 .detail-time {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* 全屏图片展示 */
+.fullscreen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 1002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.fullscreen-overlay .fullscreen-image {
+  max-width: 95vw !important;
+  max-height: 95vh !important;
+  width: auto !important;
+  height: auto !important;
+  aspect-ratio: auto !important;
+  object-fit: contain !important;
+  border-radius: 4px;
 }
 
 /* 响应式 */

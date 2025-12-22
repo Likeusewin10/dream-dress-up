@@ -126,6 +126,20 @@ confirm.mp3, complete.mp3, error.mp3, eject.mp3, developing.mp3, click.mp3
 - 支持 Web Share API（移动端系统分享）和下载图片
 - 主要 API：`generateShareCard()`, `shareImage()`, `downloadImage()`
 
+### 图片查看
+
+- **对比画面**：点击已生成的照片，显示原始照片与变装后照片的左右对比
+- **全屏展示**：在对比画面中点击任意图片，可单图全屏展示
+- **交互**：点击全屏图片任意位置返回对比画面
+- 状态：`fullscreenImage`（当前全屏展示的图片URL）
+- 样式：`.fullscreen-overlay`, `.fullscreen-image`（App.css）
+
+### 图片上传处理
+
+- 上传的图片保持原始比例，不进行裁剪
+- 仅限制最大边为 1024px，超过时等比缩放
+- 输出格式：JPEG，质量 0.9
+
 ### 图片本地存储（IndexedDB）
 
 - 生成的图片自动保存到 IndexedDB，避免 CDN URL 过期问题

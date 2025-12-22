@@ -104,6 +104,7 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryItem | null>(null);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null); // 全屏展示的图片URL
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<HistoryItem | null>(null);
 
   // 拖拽历史记录项
@@ -503,16 +504,28 @@ function App() {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const size = Math.min(img.width, img.height);
-        canvas.width = 640;
-        canvas.height = 640;
+        // 保持原始比例，只限制最大尺寸
+        const maxSize = 1024;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = Math.round(height * maxSize / width);
+            width = maxSize;
+          } else {
+            width = Math.round(width * maxSize / height);
+            height = maxSize;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const offsetX = (img.width - size) / 2;
-        const offsetY = (img.height - size) / 2;
-        ctx.drawImage(img, offsetX, offsetY, size, size, 0, 0, 640, 640);
+        ctx.drawImage(img, 0, 0, width, height);
 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
 
@@ -2226,11 +2239,11 @@ function App() {
           <div className="detail-container" onClick={(e) => e.stopPropagation()}>
             <button className="btn-close" onClick={() => { playSound('click'); setSelectedHistoryItem(null); }}>✕</button>
             <div className="detail-images">
-              <div className="detail-image-box">
+              <div className="detail-image-box" onClick={() => setFullscreenImage(getImageUrl(selectedHistoryItem.id, 'original', selectedHistoryItem.originalPhoto))}>
                 <span className="detail-label">原始照片</span>
                 <img src={getImageUrl(selectedHistoryItem.id, 'original', selectedHistoryItem.originalPhoto)} alt="原始" />
               </div>
-              <div className="detail-image-box">
+              <div className="detail-image-box" onClick={() => setFullscreenImage(getImageUrl(selectedHistoryItem.id, 'result', selectedHistoryItem.resultPhoto))}>
                 <span className="detail-label">变装后</span>
                 <img src={getImageUrl(selectedHistoryItem.id, 'result', selectedHistoryItem.resultPhoto)} alt="变装后" />
               </div>
@@ -2248,6 +2261,13 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 全屏图片展示 */}
+      {fullscreenImage && (
+        <div className="fullscreen-overlay" onClick={() => { playSound('click'); setFullscreenImage(null); }}>
+          <img src={fullscreenImage} alt="全屏展示" className="fullscreen-image" />
         </div>
       )}
 
