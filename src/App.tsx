@@ -25,6 +25,15 @@ import {
   shareImage,
   type ShareCardData,
 } from './services/share';
+import {
+  saveImage,
+  getImage,
+  deleteImage,
+  getAllImagesAsBase64,
+  importImagesFromBase64,
+  getStorageInfo,
+  type ProgressCallback,
+} from './services/image-storage';
 import './App.css';
 
 // 胶片/照片类型（在画板上）
@@ -107,6 +116,10 @@ function App() {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
   const [sharePreview, setSharePreview] = useState<string | null>(null);
+
+  // 图片缓存（从 IndexedDB 加载的 blob URLs）
+  const [imageCache, setImageCache] = useState<Record<string, string>>({});
+  const [storageInfo, setStorageInfo] = useState<{ count: number; estimatedSize: string } | null>(null);
 
   // 音效设置状态
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(() => getSoundSettings());
@@ -207,7 +220,42 @@ function App() {
     } catch (e) {
       console.error('加载相机位置失败', e);
     }
+
+    // 更新存储信息
+    getStorageInfo().then(setStorageInfo);
   }, []);
+
+  // 从 IndexedDB 加载图片到缓存
+  useEffect(() => {
+    const loadImages = async () => {
+      const newCache: Record<string, string> = {};
+
+      for (const item of history) {
+        // 如果已经在缓存中，跳过
+        if (imageCache[item.id]) continue;
+
+        // 尝试从 IndexedDB 加载
+        const blobUrl = await getImage(item.id);
+        if (blobUrl) {
+          newCache[item.id] = blobUrl;
+        }
+
+        // 也加载原图（如果有存储的话）
+        const originalBlobUrl = await getImage(item.id + '-original');
+        if (originalBlobUrl) {
+          newCache[item.id + '-original'] = originalBlobUrl;
+        }
+      }
+
+      if (Object.keys(newCache).length > 0) {
+        setImageCache(prev => ({ ...prev, ...newCache }));
+      }
+    };
+
+    if (history.length > 0) {
+      loadImages();
+    }
+  }, [history]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 启动摄像头（保留备用）
   const _startCamera = useCallback(async () => {
@@ -599,6 +647,23 @@ function App() {
                   position: finalPosition,
                   isOnCanvas: true, // 新生成的照片默认显示在画板上
                 };
+
+                // 保存图片到 IndexedDB（异步，不阻塞 UI）
+                (async () => {
+                  try {
+                    // 保存生成的图片
+                    await saveImage(newItem.id, imageUrl);
+                    // 保存原图
+                    await saveImage(newItem.id + '-original', completedFilm.originalPhoto);
+                    // 更新存储信息
+                    const info = await getStorageInfo();
+                    setStorageInfo(info);
+                    console.log(`图片已保存到本地存储: ${newItem.id}`);
+                  } catch (e) {
+                    console.error('保存图片到 IndexedDB 失败:', e);
+                  }
+                })();
+
                 // 使用 queueMicrotask 避免在 setState 回调内嵌套 setState
                 queueMicrotask(() => {
                   setHistory(prevHistory => {
@@ -783,6 +848,20 @@ function App() {
                   position: completedFilm.position,
                   isOnCanvas: true, // 新生成的照片默认显示在画板上
                 };
+
+                // 保存图片到 IndexedDB（异步，不阻塞 UI）
+                (async () => {
+                  try {
+                    await saveImage(newItem.id, imageUrl);
+                    await saveImage(newItem.id + '-original', completedFilm.originalPhoto);
+                    const info = await getStorageInfo();
+                    setStorageInfo(info);
+                    console.log(`图片已保存到本地存储: ${newItem.id}`);
+                  } catch (e) {
+                    console.error('保存图片到 IndexedDB 失败:', e);
+                  }
+                })();
+
                 queueMicrotask(() => {
                   setHistory(prevHistory => {
                     if (prevHistory.some(h => h.id === newItem.id)) {
@@ -935,8 +1014,34 @@ function App() {
   };
 
   // 确认删除历史记录
-  const confirmDeleteHistoryItem = () => {
+  const confirmDeleteHistoryItem = async () => {
     if (!deleteConfirmItem) return;
+
+    // 从 IndexedDB 删除图片
+    try {
+      await deleteImage(deleteConfirmItem.id);
+      await deleteImage(deleteConfirmItem.id + '-original');
+      // 更新存储信息
+      const info = await getStorageInfo();
+      setStorageInfo(info);
+    } catch (e) {
+      console.error('删除 IndexedDB 图片失败:', e);
+    }
+
+    // 清除缓存中的 blob URL
+    setImageCache(prev => {
+      const newCache = { ...prev };
+      if (newCache[deleteConfirmItem.id]) {
+        URL.revokeObjectURL(newCache[deleteConfirmItem.id]);
+        delete newCache[deleteConfirmItem.id];
+      }
+      if (newCache[deleteConfirmItem.id + '-original']) {
+        URL.revokeObjectURL(newCache[deleteConfirmItem.id + '-original']);
+        delete newCache[deleteConfirmItem.id + '-original'];
+      }
+      return newCache;
+    });
+
     saveHistory(history.filter(item => item.id !== deleteConfirmItem.id));
     if (selectedHistoryItem?.id === deleteConfirmItem.id) {
       setSelectedHistoryItem(null);
@@ -948,6 +1053,12 @@ function App() {
   const cancelDelete = () => {
     setDeleteConfirmItem(null);
   };
+
+  // 获取图片 URL（优先从 IndexedDB 缓存获取）
+  const getImageUrl = useCallback((itemId: string, type: 'result' | 'original', fallbackUrl: string) => {
+    const cacheKey = type === 'original' ? itemId + '-original' : itemId;
+    return imageCache[cacheKey] || fallbackUrl;
+  }, [imageCache]);
 
   // 收纳照片到 Gallery
   const collectPhoto = (itemId: string) => {
@@ -985,7 +1096,7 @@ function App() {
       const cardData: ShareCardData = {
         name: selectedHistoryItem.name,
         dream: selectedHistoryItem.dream,
-        resultPhoto: selectedHistoryItem.resultPhoto,
+        resultPhoto: getImageUrl(selectedHistoryItem.id, 'result', selectedHistoryItem.resultPhoto),
         timestamp: selectedHistoryItem.timestamp,
       };
       const blob = await generateShareCard(cardData);
@@ -1020,7 +1131,7 @@ function App() {
       const cardData: ShareCardData = {
         name: selectedHistoryItem.name,
         dream: selectedHistoryItem.dream,
-        resultPhoto: selectedHistoryItem.resultPhoto,
+        resultPhoto: getImageUrl(selectedHistoryItem.id, 'result', selectedHistoryItem.resultPhoto),
         timestamp: selectedHistoryItem.timestamp,
       };
 
@@ -1313,6 +1424,119 @@ function App() {
     setTempTemplateId('realistic');
     setTempPrompt(DEFAULT_PROMPT_TEMPLATE);
   };
+
+  // 导出数据（包含图片）
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ percent: 0, message: '' });
+
+  const handleExportData = async () => {
+    setIsExporting(true);
+    setExportProgress({ percent: 0, message: '准备导出...' });
+
+    try {
+      // 获取 IndexedDB 中的所有图片（转为 base64），带进度回调
+      const onProgress: ProgressCallback = (current, _total, message) => {
+        setExportProgress({ percent: current, message });
+      };
+
+      const images = await getAllImagesAsBase64(onProgress);
+
+      setExportProgress({ percent: 95, message: '正在生成备份文件...' });
+
+      const exportData = {
+        version: 2, // 版本升级，包含图片数据
+        exportTime: new Date().toISOString(),
+        data: {
+          history: localStorage.getItem(HISTORY_KEY),
+          cameraPosition: localStorage.getItem(CAMERA_POSITION_KEY),
+          templates: localStorage.getItem(TEMPLATES_STORAGE_KEY),
+          soundSettings: localStorage.getItem('dream-dress-sound-settings'),
+          settings: localStorage.getItem('dream-dress-settings'),
+        },
+        images, // 包含所有图片的 base64 数据
+      };
+
+      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dream-dress-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setExportProgress({ percent: 100, message: '导出完成！' });
+      playSound('complete');
+
+      // 延迟重置状态
+      setTimeout(() => {
+        setIsExporting(false);
+        setExportProgress({ percent: 0, message: '' });
+      }, 1500);
+    } catch (e) {
+      console.error('导出失败:', e);
+      setError('导出失败');
+      playSound('error');
+      setIsExporting(false);
+      setExportProgress({ percent: 0, message: '' });
+    }
+  };
+
+  // 导入数据
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
+
+      if (!importData.data) {
+        setError('无效的备份文件');
+        playSound('error');
+        setIsImporting(false);
+        return;
+      }
+
+      // 恢复 localStorage 数据
+      const { data } = importData;
+      if (data.history) localStorage.setItem(HISTORY_KEY, data.history);
+      if (data.cameraPosition) localStorage.setItem(CAMERA_POSITION_KEY, data.cameraPosition);
+      if (data.templates) localStorage.setItem(TEMPLATES_STORAGE_KEY, data.templates);
+      if (data.soundSettings) localStorage.setItem('dream-dress-sound-settings', data.soundSettings);
+      if (data.settings) localStorage.setItem('dream-dress-settings', data.settings);
+
+      // 恢复 IndexedDB 图片数据（版本2以上才有）
+      if (importData.images && Object.keys(importData.images).length > 0) {
+        await importImagesFromBase64(importData.images);
+        console.log(`已导入 ${Object.keys(importData.images).length} 张图片`);
+      }
+
+      playSound('complete');
+
+      // 刷新页面以加载新数据
+      if (confirm('导入成功！需要刷新页面以加载数据，是否立即刷新？')) {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('导入失败:', err);
+      setError('导入失败：文件格式错误');
+      playSound('error');
+    } finally {
+      setIsImporting(false);
+    }
+
+    // 清空 input 以便再次选择同一文件
+    e.target.value = '';
+  };
+
+  // 导入文件输入框引用
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="app">
@@ -1649,7 +1873,7 @@ function App() {
             }}
           >
             <div className="film-image">
-              <img src={item.resultPhoto} alt={item.name} />
+              <img src={getImageUrl(item.id, 'result', item.resultPhoto)} alt={item.name} />
             </div>
             <div className="film-info">
               {item.name && item.name.trim() !== '' && item.name.trim() !== '未命名' && (
@@ -1738,7 +1962,7 @@ function App() {
                       onClick={() => setSelectedHistoryItem(item)}
                     >
                       <div className="gallery-polaroid-image">
-                        <img src={item.resultPhoto} alt={item.name} />
+                        <img src={getImageUrl(item.id, 'result', item.resultPhoto)} alt={item.name} />
                       </div>
                       <div className="gallery-polaroid-info">
                         <span className="gallery-polaroid-dream">{item.dream}</span>
@@ -1933,6 +2157,58 @@ function App() {
                 </p>
               </div>
 
+              {/* 数据备份 */}
+              <div className="settings-field">
+                <label>📦 数据备份</label>
+                {storageInfo && (
+                  <p className="storage-info">
+                    💾 本地存储：{storageInfo.count} 张图片，约 {storageInfo.estimatedSize}
+                  </p>
+                )}
+
+                {/* 导出进度条 */}
+                {isExporting && (
+                  <div className="export-progress">
+                    <div className="export-progress-bar">
+                      <div
+                        className="export-progress-fill"
+                        style={{ width: `${exportProgress.percent}%` }}
+                      />
+                    </div>
+                    <p className="export-progress-text">
+                      {exportProgress.message} ({exportProgress.percent}%)
+                    </p>
+                  </div>
+                )}
+
+                <div className="backup-buttons">
+                  <button
+                    className="backup-btn export"
+                    onClick={() => { playSound('click'); handleExportData(); }}
+                    disabled={isExporting || isImporting}
+                  >
+                    {isExporting ? '⏳ 导出中...' : '📤 导出数据'}
+                  </button>
+                  <button
+                    className="backup-btn import"
+                    onClick={() => { playSound('click'); importInputRef.current?.click(); }}
+                    disabled={isExporting || isImporting}
+                  >
+                    {isImporting ? '⏳ 导入中...' : '📥 导入数据'}
+                  </button>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportData}
+                    style={{ display: 'none' }}
+                  />
+                </div>
+                <p className="settings-hint">
+                  导出包含：历史照片图片、相机位置、自定义模板、音效设置、API 设置
+                </p>
+              </div>
+
               <button
                 className="btn-primary"
                 onClick={() => { playSound('click'); handleSaveSettings(); }}
@@ -1952,11 +2228,11 @@ function App() {
             <div className="detail-images">
               <div className="detail-image-box">
                 <span className="detail-label">原始照片</span>
-                <img src={selectedHistoryItem.originalPhoto} alt="原始" />
+                <img src={getImageUrl(selectedHistoryItem.id, 'original', selectedHistoryItem.originalPhoto)} alt="原始" />
               </div>
               <div className="detail-image-box">
                 <span className="detail-label">变装后</span>
-                <img src={selectedHistoryItem.resultPhoto} alt="变装后" />
+                <img src={getImageUrl(selectedHistoryItem.id, 'result', selectedHistoryItem.resultPhoto)} alt="变装后" />
               </div>
             </div>
             <div className="detail-info">
@@ -2020,7 +2296,7 @@ function App() {
         <div className="delete-confirm-overlay" onClick={() => { playSound('click'); cancelDelete(); }}>
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="delete-confirm-preview">
-              <img src={deleteConfirmItem.resultPhoto} alt="预览" />
+              <img src={getImageUrl(deleteConfirmItem.id, 'result', deleteConfirmItem.resultPhoto)} alt="预览" />
             </div>
             <p className="delete-confirm-text">确定要删除这张照片吗？</p>
             <div className="delete-confirm-actions">

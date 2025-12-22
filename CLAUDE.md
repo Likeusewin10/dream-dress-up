@@ -33,7 +33,8 @@ src/
 │   ├── settings.ts         # 设置管理器（localStorage + URL 参数）
 │   ├── image-api.ts        # AI 图像生成 API 调用
 │   ├── sound.ts            # 音效服务（Web Audio API 合成）
-│   └── share.ts            # 分享服务（生成分享卡片、系统分享）
+│   ├── share.ts            # 分享服务（生成分享卡片、系统分享）
+│   └── image-storage.ts    # IndexedDB 图片存储服务
 └── constants/dreams.ts     # 提示词模板定义
 ```
 
@@ -42,6 +43,7 @@ src/
 1. **拍照/上传** → `capturedPhoto` state → 左侧表单输入梦想
 2. **确认生成** → 创建 `FilmPhoto` 对象（带弹出动画）→ 调用 `generateImage` API
 3. **显影动画** → `developProgress` 从 0 到 100 → 完成后转为 `HistoryItem` 存入 localStorage
+4. **图片持久化** → 生成完成后自动将图片保存到 IndexedDB（避免 CDN URL 过期）
 
 ### 关键状态
 
@@ -123,6 +125,32 @@ confirm.mp3, complete.mp3, error.mp3, eject.mp3, developing.mp3, click.mp3
 - 生成精美分享卡片（Canvas 绘制），包含：变装照片、梦想描述、日期、网站水印
 - 支持 Web Share API（移动端系统分享）和下载图片
 - 主要 API：`generateShareCard()`, `shareImage()`, `downloadImage()`
+
+### 图片本地存储（IndexedDB）
+
+- 生成的图片自动保存到 IndexedDB，避免 CDN URL 过期问题
+- 同时保存生成图和原图（key 格式：`{historyId}` 和 `{historyId}-original`）
+- 显示时优先从 IndexedDB 加载，无缓存时回退到原始 URL
+- 删除历史记录时自动清理对应的 IndexedDB 图片
+- 服务：`src/services/image-storage.ts`
+- 主要 API：
+  - `saveImage(id, url)` - 保存图片
+  - `getImage(id)` - 获取图片（返回 blob URL）
+  - `deleteImage(id)` - 删除图片
+  - `getAllImagesAsBase64()` - 导出所有图片（用于备份）
+  - `importImagesFromBase64(images)` - 导入图片（用于恢复）
+  - `getStorageInfo()` - 获取存储统计
+
+### 数据导入导出
+
+- 在设置面板底部有「📤 导出数据」和「📥 导入数据」按钮
+- 显示本地存储统计：图片数量和估算大小
+- 导出为 JSON 文件（版本2），包含：
+  - localStorage 数据：历史记录元信息、相机位置、自定义模板、音效设置、API 设置
+  - IndexedDB 图片：所有图片转为 base64 嵌入（确保完整备份）
+- 导入时自动恢复 localStorage 和 IndexedDB 数据
+- 导入后自动提示刷新页面加载数据
+- 文件名格式：`dream-dress-backup-YYYY-MM-DD.json`
 
 ### 相机拖拽
 
