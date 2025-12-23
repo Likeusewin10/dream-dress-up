@@ -1515,13 +1515,20 @@ function App() {
     if (!historyDragRef.current) return;
 
     const draggedId = historyDragRef.current.id;
+    // 保存拖拽开始前的位置（用于收纳时恢复）
+    const originalPosition = {
+      x: historyDragRef.current.offsetX,
+      y: historyDragRef.current.offsetY,
+    };
 
-    // 如果放在 Gallery 按钮上，收纳照片
+    // 如果放在 Gallery 按钮上，收纳照片（恢复到拖拽前的位置）
     if (isOverGallery) {
       playSound('click');
       setHistory(prev => {
         const updated = prev.map(h =>
-          h.id === draggedId ? { ...h, isOnCanvas: false } : h
+          h.id === draggedId
+            ? { ...h, isOnCanvas: false, position: originalPosition }
+            : h
         );
         localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
         return updated;
@@ -1971,7 +1978,15 @@ function App() {
             </div>
 
             {/* 摄像头视频或拍摄的照片（在相机镜头处显示） */}
-            <div className="camera-video-container">
+            <div
+              className={`camera-video-container ${virtualCameraEnabled && !capturedPhoto ? 'clickable' : ''}`}
+              onClick={() => {
+                // 虚拟摄像头模式下，点击取景框上传素材
+                if (virtualCameraEnabled && !capturedPhoto && !enteringPhoto) {
+                  virtualMediaInputRef.current?.click();
+                }
+              }}
+            >
               {capturedPhoto ? (
                 <img src={capturedPhoto} alt="拍摄的照片" className="captured-preview" />
               ) : virtualCameraEnabled ? (
@@ -2015,7 +2030,7 @@ function App() {
                   ) : (
                     <div className="camera-placeholder virtual-camera-empty">
                       <span>📁</span>
-                      <small>请上传素材</small>
+                      <small>点击上传素材</small>
                     </div>
                   )}
                   {/* 光圈动画遮罩 */}
@@ -2089,15 +2104,16 @@ function App() {
 
             {/* 上传按钮 - 底部出口位置，带箭头图标 */}
             <button
-              className={`camera-upload ${virtualCameraEnabled ? 'virtual-mode' : ''}`}
-              onClick={() => virtualCameraEnabled ? virtualMediaInputRef.current?.click() : fileInputRef.current?.click()}
+              className="camera-upload"
+              onClick={() => fileInputRef.current?.click()}
               disabled={!!capturedPhoto || !!enteringPhoto}
-              title={virtualCameraEnabled ? '上传素材' : '上传照片'}
+              title="上传照片"
             >
-              <span className="upload-arrow">{virtualCameraEnabled ? '+' : '↑'}</span>
+              <span className="upload-arrow">↑</span>
             </button>
 
             {/* 摄像头开关按钮 - 左下角旋钮位置 */}
+            <div className={`camera-toggle-knob ${cameraEnabled ? 'on' : ''}`} />
             <button
               className={`camera-toggle ${cameraEnabled ? 'on' : 'off'}`}
               onClick={toggleCamera}

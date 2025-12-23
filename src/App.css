@@ -933,6 +933,22 @@ body {
   background: #1a1a1a;
 }
 
+/* 虚拟摄像头模式下可点击 */
+.camera-video-container.clickable {
+  cursor: pointer;
+}
+
+.camera-video-container.clickable:hover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
 /* 镜头内的视频 */
 .camera-video {
   width: 100%;
@@ -1033,18 +1049,27 @@ body {
 /* 摄像头开关按钮 - 左下角旋钮位置 */
 .camera-toggle {
   position: absolute;
-  left: 15%;
-  top: 63%;
-  width: 40px;
-  height: 40px;
+  left: 16%;
+  top: 63.5%;
+  width: 7.5%;
+  height: 0;
+  padding-bottom: 7.5%; /* 保持正方形比例，与图片一致 */
   min-width: 0;
-  padding: 0;
   background: transparent;
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  z-index: 10;
-  transition: all 0.2s ease;
+  z-index: 11;
+  transition: transform 0.2s ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: none;
+}
+
+.camera-toggle:focus,
+.camera-toggle:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .camera-toggle:hover:not(:disabled) {
@@ -1054,6 +1079,26 @@ body {
 .camera-toggle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 转动按钮图片 - 装饰性 */
+.camera-toggle-knob {
+  position: absolute;
+  left: 16%;
+  top: 63.5%;
+  width: 7.5%;
+  height: 0;
+  padding-bottom: 7.5%;
+  background: url('/knob.png') no-repeat center center;
+  background-size: contain;
+  z-index: 10;
+  transform: rotate(50deg); /* 关闭状态 */
+  transition: transform 0.3s ease;
+  pointer-events: none; /* 不响应点击 */
+}
+
+.camera-toggle-knob.on {
+  transform: rotate(10deg); /* 开启状态 */
 }
 
 /* 上传按钮箭头图标 */
