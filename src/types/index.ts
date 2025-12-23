@@ -44,3 +44,12 @@ export interface GenerationResult {
   dream: Dream;
   originalPhoto: string;
 }
+
+// 虚拟摄像头素材类型
+export interface VirtualMedia {
+  id: string;
+  type: 'image' | 'video';
+  dataUrl: string;  // base64 data URL
+  thumbnail?: string;  // 缩略图（视频用）
+  duration?: number;  // 视频时长（秒）
+}

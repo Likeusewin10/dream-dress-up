@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateImage } from './services/image-api';
 import { settingsManager } from './services/settings';
-import { generateCustomPrompt, DEFAULT_PROMPT_TEMPLATE, BUILT_IN_TEMPLATES, TEMPLATES_STORAGE_KEY } from './constants/dreams';
-import type { PromptTemplate } from './constants/dreams';
-import { IMAGE_MODELS } from './types';
+import { generateCustomPrompt, DEFAULT_PROMPT_TEMPLATE, BUILT_IN_TEMPLATES, TEMPLATES_STORAGE_KEY, BUILT_IN_AUTO_TEMPLATES, AUTO_TEMPLATES_STORAGE_KEY } from './constants/dreams';
+import type { PromptTemplate, AutoTemplate } from './constants/dreams';
+import { IMAGE_MODELS, type VirtualMedia } from './types';
+import {
+  isVirtualCameraEnabled,
+  setVirtualCameraEnabled,
+  getVirtualMediaList,
+  saveVirtualMediaList,
+  processMediaFile,
+  captureVideoFrame,
+  IMAGE_INTERVAL,
+} from './services/virtual-camera';
 import {
   playSound,
   startDevelopingSound,
@@ -125,6 +134,15 @@ function App() {
   // 音效设置状态
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(() => getSoundSettings());
 
+  // 虚拟摄像头状态
+  const [virtualCameraEnabled, setVirtualCameraEnabledState] = useState(() => isVirtualCameraEnabled());
+  const [virtualMediaList, setVirtualMediaList] = useState<VirtualMedia[]>(() => getVirtualMediaList());
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const virtualVideoRef = useRef<HTMLVideoElement>(null);
+  const virtualMediaInputRef = useRef<HTMLInputElement>(null);
+  const imageIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoPlaybackTimeRef = useRef<number>(0); // 保存视频播放位置
+
   // 模板切换提示状态
   const [templateToast, setTemplateToast] = useState<{ name: string; index: number; total: number } | null>(null);
   const templateSwitchRef = useRef<{
@@ -133,6 +151,11 @@ function App() {
     isPressed: boolean;  // 是否真正按下了
     lastSwitchTime: number;  // 上次切换时间，防抖用
   }>({ timer: null, isLongPress: false, isPressed: false, lastSwitchTime: 0 });
+
+  // 自动/手动模式状态
+  const [isAutoMode, setIsAutoMode] = useState(false);
+  const [autoTemplates, setAutoTemplates] = useState<AutoTemplate[]>(BUILT_IN_AUTO_TEMPLATES);
+  const [currentAutoTemplateIndex, setCurrentAutoTemplateIndex] = useState(0);
 
   // API设置
   const [showSettings, setShowSettings] = useState(false);
@@ -146,6 +169,12 @@ function App() {
   const [templates, setTemplates] = useState<PromptTemplate[]>(BUILT_IN_TEMPLATES);
   const [showAddTemplate, setShowAddTemplate] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+
+  // 自动模板编辑状态
+  const [showAddAutoTemplate, setShowAddAutoTemplate] = useState(false);
+  const [newAutoTemplateName, setNewAutoTemplateName] = useState('');
+  const [newAutoTemplateIcon, setNewAutoTemplateIcon] = useState('✨');
+  const [newAutoTemplatePrompt, setNewAutoTemplatePrompt] = useState('');
 
   // refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -186,6 +215,17 @@ function App() {
       }
     } catch (e) {
       console.error('加载模板失败', e);
+    }
+
+    // 加载自定义自动模板
+    try {
+      const savedAutoTemplates = localStorage.getItem(AUTO_TEMPLATES_STORAGE_KEY);
+      if (savedAutoTemplates) {
+        const customAutoTemplates = JSON.parse(savedAutoTemplates) as AutoTemplate[];
+        setAutoTemplates([...BUILT_IN_AUTO_TEMPLATES, ...customAutoTemplates]);
+      }
+    } catch (e) {
+      console.error('加载自动模板失败', e);
     }
 
     // 加载设置
@@ -297,6 +337,31 @@ function App() {
   const toggleCamera = useCallback(async () => {
     if (cameraTransition) return; // 动画进行中，忽略点击
 
+    // 虚拟摄像头模式：只切换显示状态，不操作真实摄像头
+    if (virtualCameraEnabled) {
+      if (cameraEnabled) {
+        // 关闭前保存视频播放位置
+        if (virtualVideoRef.current) {
+          videoPlaybackTimeRef.current = virtualVideoRef.current.currentTime;
+        }
+        playSound('cameraOff');
+        setCameraTransition('closing');
+        setTimeout(() => {
+          setCameraEnabled(false);
+          setCameraTransition(null);
+        }, 400);
+      } else {
+        playSound('cameraOn');
+        setCameraTransition('opening');
+        setTimeout(() => {
+          setCameraEnabled(true);
+          setCameraTransition(null);
+        }, 400);
+      }
+      return;
+    }
+
+    // 真实摄像头模式
     if (streamRef.current) {
       // 摄像头开着，关闭它
       playSound('cameraOff');
@@ -336,7 +401,7 @@ function App() {
         setCameraTransition(null);
       }
     }
-  }, [cameraTransition]);
+  }, [cameraTransition, virtualCameraEnabled, cameraEnabled]);
 
   // 页面卸载时清理摄像头
   useEffect(() => {
@@ -368,35 +433,54 @@ function App() {
 
   // 快速切换模板 - 点击 logo 区域循环切换
   const handleTemplateCycle = useCallback(() => {
-    const currentIndex = templates.findIndex(t => t.id === tempTemplateId);
-    const nextIndex = (currentIndex + 1) % templates.length;
-    const nextTemplate = templates[nextIndex];
+    if (isAutoMode) {
+      // 自动模式：切换自动模板
+      const nextIndex = (currentAutoTemplateIndex + 1) % autoTemplates.length;
+      const nextTemplate = autoTemplates[nextIndex];
 
-    // 更新模板
-    setTempTemplateId(nextTemplate.id);
-    setTempPrompt(nextTemplate.template);
+      setCurrentAutoTemplateIndex(nextIndex);
 
-    // 立即保存到设置
-    settingsManager.updateConfig({
-      templateId: nextTemplate.id,
-      customPrompt: nextTemplate.template,
-    } as any);
+      // 播放切换音效
+      playSound('modeSwitch');
 
-    // 播放切换音效
-    playSound('modeSwitch');
+      // 显示提示
+      setTemplateToast({
+        name: `${nextTemplate.icon} ${nextTemplate.name}`,
+        index: nextIndex + 1,
+        total: autoTemplates.length,
+      });
+    } else {
+      // 手动模式：切换普通模板
+      const currentIndex = templates.findIndex(t => t.id === tempTemplateId);
+      const nextIndex = (currentIndex + 1) % templates.length;
+      const nextTemplate = templates[nextIndex];
 
-    // 显示提示
-    setTemplateToast({
-      name: nextTemplate.name,
-      index: nextIndex + 1,
-      total: templates.length,
-    });
+      // 更新模板
+      setTempTemplateId(nextTemplate.id);
+      setTempPrompt(nextTemplate.template);
+
+      // 立即保存到设置
+      settingsManager.updateConfig({
+        templateId: nextTemplate.id,
+        customPrompt: nextTemplate.template,
+      } as any);
+
+      // 播放切换音效
+      playSound('modeSwitch');
+
+      // 显示提示
+      setTemplateToast({
+        name: nextTemplate.name,
+        index: nextIndex + 1,
+        total: templates.length,
+      });
+    }
 
     // 2.5秒后隐藏提示
     setTimeout(() => {
       setTemplateToast(null);
     }, 2500);
-  }, [templates, tempTemplateId]);
+  }, [templates, tempTemplateId, isAutoMode, autoTemplates, currentAutoTemplateIndex]);
 
   // Logo 按钮 - 按下开始
   const handleLogoPress = useCallback((e: React.MouseEvent | React.TouchEvent) => {
@@ -460,7 +544,7 @@ function App() {
     setTimeout(() => setShowFlash(false), 250);
   }, []);
 
-  // 拍照 - 只捕获照片，弹窗确认
+  // 拍照 - 只捕获照片，弹窗确认（手动模式）或直接生成（自动模式）
   const takePhoto = useCallback(() => {
     if (!videoRef.current || capturedPhoto) return;
 
@@ -486,10 +570,17 @@ function App() {
     ctx.drawImage(video, offsetX, offsetY, size, size, 0, 0, size, size);
 
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    setCapturedPhoto(dataUrl);
-    setEditName('');
-    setEditDream('');
-  }, [capturedPhoto, triggerFlash]);
+
+    if (isAutoMode) {
+      // 自动模式：直接生成
+      handleAutoGenerate(dataUrl);
+    } else {
+      // 手动模式：弹出填写表单
+      setCapturedPhoto(dataUrl);
+      setEditName('');
+      setEditDream('');
+    }
+  }, [capturedPhoto, triggerFlash, isAutoMode]);
 
   // 上传照片
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -548,9 +639,15 @@ function App() {
             setTimeout(() => {
               playSound('shutter');
               triggerFlash();
-              setCapturedPhoto(dataUrl);
-              setEditName('');
-              setEditDream('');
+              if (isAutoMode) {
+                // 自动模式：直接生成
+                handleAutoGenerate(dataUrl);
+              } else {
+                // 手动模式：弹出填写表单
+                setCapturedPhoto(dataUrl);
+                setEditName('');
+                setEditDream('');
+              }
             }, 100);
           }
         }, 20);
@@ -559,10 +656,144 @@ function App() {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  }, [capturedPhoto, enteringPhoto, triggerFlash]);
+  }, [capturedPhoto, enteringPhoto, triggerFlash, isAutoMode]);
+
+  // 虚拟摄像头：切换启用状态
+  const handleToggleVirtualCamera = useCallback((enabled: boolean) => {
+    setVirtualCameraEnabledState(enabled);
+    setVirtualCameraEnabled(enabled);
+    if (enabled) {
+      // 开启虚拟摄像头，关闭真实摄像头
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      setCameraEnabled(false);
+      setCameraReady(false);
+    }
+  }, []);
+
+  // 虚拟摄像头：上传素材
+  const handleVirtualMediaUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    playSound('upload');
+
+    for (const file of Array.from(files)) {
+      const media = await processMediaFile(file);
+      if (media) {
+        setVirtualMediaList(prev => {
+          const newList = [...prev, media];
+          saveVirtualMediaList(newList);
+          return newList;
+        });
+      }
+    }
+
+    e.target.value = '';
+  }, []);
+
+  // 虚拟摄像头：删除素材
+  const handleRemoveVirtualMedia = useCallback((id: string) => {
+    playSound('click');
+    setVirtualMediaList(prev => {
+      const newList = prev.filter(m => m.id !== id);
+      saveVirtualMediaList(newList);
+      // 调整当前索引
+      if (newList.length === 0) {
+        setCurrentMediaIndex(0);
+      } else {
+        setCurrentMediaIndex(i => Math.min(i, newList.length - 1));
+      }
+      return newList;
+    });
+  }, []);
+
+  // 虚拟摄像头：切换到下一个素材
+  const nextVirtualMedia = useCallback(() => {
+    if (virtualMediaList.length === 0) return;
+    setCurrentMediaIndex(prev => (prev + 1) % virtualMediaList.length);
+  }, [virtualMediaList.length]);
+
+  // 虚拟摄像头：视频播放结束时切换到下一个
+  const handleVirtualVideoEnded = useCallback(() => {
+    videoPlaybackTimeRef.current = 0; // 重置播放位置
+    nextVirtualMedia();
+  }, [nextVirtualMedia]);
+
+  // 虚拟摄像头：视频加载后恢复播放位置
+  const handleVirtualVideoLoaded = useCallback(() => {
+    if (virtualVideoRef.current && videoPlaybackTimeRef.current > 0) {
+      virtualVideoRef.current.currentTime = videoPlaybackTimeRef.current;
+    }
+  }, []);
+
+  // 虚拟摄像头：图片轮播定时器
+  useEffect(() => {
+    if (!virtualCameraEnabled || virtualMediaList.length === 0) {
+      if (imageIntervalRef.current) {
+        clearInterval(imageIntervalRef.current);
+        imageIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const currentMedia = virtualMediaList[currentMediaIndex];
+    if (currentMedia?.type === 'image') {
+      // 图片：设置定时器切换
+      imageIntervalRef.current = setInterval(() => {
+        nextVirtualMedia();
+      }, IMAGE_INTERVAL);
+    } else {
+      // 视频：清除定时器，由视频结束事件触发切换
+      if (imageIntervalRef.current) {
+        clearInterval(imageIntervalRef.current);
+        imageIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (imageIntervalRef.current) {
+        clearInterval(imageIntervalRef.current);
+        imageIntervalRef.current = null;
+      }
+    };
+  }, [virtualCameraEnabled, virtualMediaList, currentMediaIndex, nextVirtualMedia]);
+
+  // 虚拟摄像头：拍照（截取当前画面）
+  const takeVirtualPhoto = useCallback(() => {
+    if (virtualMediaList.length === 0 || capturedPhoto) return;
+
+    const currentMedia = virtualMediaList[currentMediaIndex];
+    let photoDataUrl: string | null = null;
+
+    if (currentMedia.type === 'video' && virtualVideoRef.current) {
+      // 视频：截取当前帧
+      photoDataUrl = captureVideoFrame(virtualVideoRef.current);
+    } else if (currentMedia.type === 'image') {
+      // 图片：直接使用
+      photoDataUrl = currentMedia.dataUrl;
+    }
+
+    if (photoDataUrl) {
+      playSound('shutter');
+      triggerFlash();
+
+      if (isAutoMode) {
+        // 自动模式：直接生成
+        handleAutoGenerate(photoDataUrl);
+      } else {
+        // 手动模式：弹出填写表单
+        setCapturedPhoto(photoDataUrl);
+        setEditName('');
+        setEditDream('');
+      }
+    }
+  }, [virtualMediaList, currentMediaIndex, capturedPhoto, triggerFlash, isAutoMode]);
 
   // 单张胶片的弹出和生成逻辑
-  const ejectAndGenerateFilm = async (film: FilmPhoto) => {
+  const ejectAndGenerateFilm = async (film: FilmPhoto, customPromptOverride?: string) => {
     const filmId = film.id;
 
     // 播放胶片弹出音效
@@ -591,7 +822,8 @@ function App() {
     // 开始AI生成
     try {
       const config = settingsManager.getConfig();
-      const promptText = generateCustomPrompt(film.dream, config.customPrompt);
+      // 如果提供了 customPromptOverride（自动模式），直接使用；否则使用手动模式的 generateCustomPrompt
+      const promptText = customPromptOverride || generateCustomPrompt(film.dream, config.customPrompt);
       const response = await generateImage(promptText, { image: film.originalPhoto });
 
       if (response.data?.[0]?.url) {
@@ -793,6 +1025,48 @@ function App() {
         }, i * 600); // 每张间隔 600ms
       });
     }
+  };
+
+  // 自动模式：拍照后直接生成（跳过填写）
+  const handleAutoGenerate = async (photoData: string) => {
+    if (!settingsManager.hasApiKey()) {
+      setShowApiKeyWarning(true);
+      setShowSettings(true);
+      setTimeout(() => {
+        apiKeyInputRef.current?.focus();
+      }, 100);
+      return;
+    }
+
+    const currentAutoTemplate = autoTemplates[currentAutoTemplateIndex];
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+
+    // 播放确认生成音效
+    playSound('confirm');
+
+    // 创建胶片
+    const filmId = Date.now().toString();
+    const newFilm: FilmPhoto = {
+      id: filmId,
+      originalPhoto: photoData,
+      name: '',
+      dream: currentAutoTemplate.name, // 使用模板名称作为梦想描述
+      date: dateStr,
+      isGenerating: true,
+      isDeveloping: false,
+      developProgress: 0,
+      position: { x: 130, y: 30 },
+      isDragging: false,
+      isEjecting: true,
+      ejectProgress: 0,
+      isFailed: false,
+    };
+
+    setFilms(prev => [...prev, newFilm]);
+
+    // 开始弹出和生成，使用自动模板的 prompt
+    ejectAndGenerateFilm(newFilm, currentAutoTemplate.template);
   };
 
   // 重试生成失败的胶片
@@ -1438,6 +1712,53 @@ function App() {
     setTempPrompt(DEFAULT_PROMPT_TEMPLATE);
   };
 
+  // 添加自动模板
+  const handleAddAutoTemplate = () => {
+    if (!newAutoTemplateName.trim() || !newAutoTemplatePrompt.trim()) return;
+
+    const newTemplate: AutoTemplate = {
+      id: `auto-custom-${Date.now()}`,
+      name: newAutoTemplateName.trim(),
+      icon: newAutoTemplateIcon || '✨',
+      template: newAutoTemplatePrompt,
+      isBuiltIn: false,
+    };
+
+    const customAutoTemplates = autoTemplates.filter(t => !t.isBuiltIn);
+    const updatedCustomAutoTemplates = [...customAutoTemplates, newTemplate];
+
+    // 保存到 localStorage
+    localStorage.setItem(AUTO_TEMPLATES_STORAGE_KEY, JSON.stringify(updatedCustomAutoTemplates));
+
+    // 更新状态
+    setAutoTemplates([...BUILT_IN_AUTO_TEMPLATES, ...updatedCustomAutoTemplates]);
+    setNewAutoTemplateName('');
+    setNewAutoTemplateIcon('✨');
+    setNewAutoTemplatePrompt('');
+    setShowAddAutoTemplate(false);
+  };
+
+  // 删除自动模板
+  const handleDeleteAutoTemplate = (templateId: string) => {
+    const template = autoTemplates.find(t => t.id === templateId);
+    if (!template || template.isBuiltIn) return;
+
+    const customAutoTemplates = autoTemplates.filter(t => !t.isBuiltIn && t.id !== templateId);
+
+    // 保存到 localStorage
+    localStorage.setItem(AUTO_TEMPLATES_STORAGE_KEY, JSON.stringify(customAutoTemplates));
+
+    // 更新状态
+    setAutoTemplates([...BUILT_IN_AUTO_TEMPLATES, ...customAutoTemplates]);
+
+    // 如果删除的是当前选中的模板，切换到第一个
+    const newTemplates = [...BUILT_IN_AUTO_TEMPLATES, ...customAutoTemplates];
+    const currentIndex = currentAutoTemplateIndex;
+    if (currentIndex >= newTemplates.length) {
+      setCurrentAutoTemplateIndex(0);
+    }
+  };
+
   // 导出数据（包含图片）
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState({ percent: 0, message: '' });
@@ -1653,7 +1974,64 @@ function App() {
             <div className="camera-video-container">
               {capturedPhoto ? (
                 <img src={capturedPhoto} alt="拍摄的照片" className="captured-preview" />
+              ) : virtualCameraEnabled ? (
+                /* 虚拟摄像头模式 */
+                <>
+                  {cameraEnabled && virtualMediaList.length > 0 ? (
+                    <>
+                      {virtualMediaList[currentMediaIndex]?.type === 'video' ? (
+                        <video
+                          key={virtualMediaList[currentMediaIndex]?.id}
+                          ref={virtualVideoRef}
+                          src={virtualMediaList[currentMediaIndex]?.dataUrl}
+                          autoPlay
+                          loop={virtualMediaList.length === 1}
+                          playsInline
+                          muted
+                          className="camera-video virtual-camera-video"
+                          onEnded={handleVirtualVideoEnded}
+                          onLoadedData={handleVirtualVideoLoaded}
+                        />
+                      ) : (
+                        <img
+                          key={virtualMediaList[currentMediaIndex]?.id}
+                          src={virtualMediaList[currentMediaIndex]?.dataUrl}
+                          alt="虚拟摄像头素材"
+                          className="camera-video virtual-camera-image"
+                        />
+                      )}
+                      {/* 素材指示器 */}
+                      {virtualMediaList.length > 1 && (
+                        <div className="virtual-media-indicator">
+                          {currentMediaIndex + 1} / {virtualMediaList.length}
+                        </div>
+                      )}
+                    </>
+                  ) : !cameraEnabled ? (
+                    <div className="camera-placeholder camera-off">
+                      <span>📷</span>
+                      <small>摄像头已关闭</small>
+                    </div>
+                  ) : (
+                    <div className="camera-placeholder virtual-camera-empty">
+                      <span>📁</span>
+                      <small>请上传素材</small>
+                    </div>
+                  )}
+                  {/* 光圈动画遮罩 */}
+                  {cameraTransition && (
+                    <div className={`camera-iris ${cameraTransition}`}>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                      <div className="iris-blade"></div>
+                    </div>
+                  )}
+                </>
               ) : (
+                /* 真实摄像头模式 */
                 <>
                   <video
                     ref={videoRef}
@@ -1689,22 +2067,34 @@ function App() {
             {/* 相机图片 */}
             <img src="/c.png" alt="相机" className="camera-image" />
 
+            {/* 自动/手动模式切换按钮 - LCD 风格 */}
+            <button
+              className={`camera-mode-switch ${isAutoMode ? 'auto' : 'manual'}`}
+              onClick={() => {
+                playSound('modeSwitch');
+                setIsAutoMode(!isAutoMode);
+              }}
+              title={isAutoMode ? '当前：自动模式（点击切换到手动）' : '当前：手动模式（点击切换到自动）'}
+            >
+              <span className="mode-text">{isAutoMode ? '自动' : '手动'}</span>
+            </button>
+
             {/* 拍照按钮 - 右上角，模拟快门 */}
             <button
               className="camera-shutter"
-              onClick={takePhoto}
-              disabled={!!capturedPhoto || !cameraEnabled}
+              onClick={virtualCameraEnabled ? takeVirtualPhoto : takePhoto}
+              disabled={!!capturedPhoto || !cameraEnabled || (virtualCameraEnabled && virtualMediaList.length === 0)}
               title="拍照"
             />
 
             {/* 上传按钮 - 底部出口位置，带箭头图标 */}
             <button
-              className="camera-upload"
-              onClick={() => fileInputRef.current?.click()}
+              className={`camera-upload ${virtualCameraEnabled ? 'virtual-mode' : ''}`}
+              onClick={() => virtualCameraEnabled ? virtualMediaInputRef.current?.click() : fileInputRef.current?.click()}
               disabled={!!capturedPhoto || !!enteringPhoto}
-              title="上传照片"
+              title={virtualCameraEnabled ? '上传素材' : '上传照片'}
             >
-              <span className="upload-arrow">↑</span>
+              <span className="upload-arrow">{virtualCameraEnabled ? '+' : '↑'}</span>
             </button>
 
             {/* 摄像头开关按钮 - 左下角旋钮位置 */}
@@ -1931,6 +2321,16 @@ function App() {
         style={{ display: 'none' }}
       />
 
+      {/* 虚拟摄像头素材输入 */}
+      <input
+        ref={virtualMediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        onChange={handleVirtualMediaUpload}
+        style={{ display: 'none' }}
+      />
+
       {/* 错误提示 */}
       {error && (
         <div className="error-toast" onClick={() => setError(null)}>
@@ -2145,6 +2545,91 @@ function App() {
                 </p>
               </div>
 
+              {/* 自动模式模板 */}
+              <div className="settings-field">
+                <label>🎭 自动模式模板</label>
+                <p className="settings-hint auto-template-hint">
+                  自动模式下，拍照后直接使用选中的模板生成图片，无需输入梦想描述。
+                </p>
+                <div className="auto-template-list">
+                  {autoTemplates.map((template, index) => (
+                    <div
+                      key={template.id}
+                      className={`auto-template-item ${currentAutoTemplateIndex === index ? 'active' : ''}`}
+                      onClick={() => setCurrentAutoTemplateIndex(index)}
+                    >
+                      <span className="auto-template-icon">{template.icon}</span>
+                      <span className="auto-template-name">{template.name}</span>
+                      {template.isBuiltIn && <span className="auto-template-badge">内置</span>}
+                      {!template.isBuiltIn && (
+                        <button
+                          className="auto-template-delete"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteAutoTemplate(template.id);
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    className="auto-template-add"
+                    onClick={() => setShowAddAutoTemplate(true)}
+                  >
+                    + 添加自动模板
+                  </button>
+                </div>
+              </div>
+
+              {showAddAutoTemplate && (
+                <div className="settings-field add-auto-template-field">
+                  <label>新自动模板</label>
+                  <div className="add-auto-template-row">
+                    <input
+                      type="text"
+                      value={newAutoTemplateIcon}
+                      onChange={(e) => setNewAutoTemplateIcon(e.target.value)}
+                      placeholder="图标"
+                      className="input-icon"
+                      maxLength={2}
+                    />
+                    <input
+                      type="text"
+                      value={newAutoTemplateName}
+                      onChange={(e) => setNewAutoTemplateName(e.target.value)}
+                      placeholder="模板名称"
+                      className="input-name"
+                    />
+                  </div>
+                  <textarea
+                    value={newAutoTemplatePrompt}
+                    onChange={(e) => setNewAutoTemplatePrompt(e.target.value)}
+                    placeholder="输入提示词（描述要生成的效果）"
+                    className="input-prompt"
+                    rows={4}
+                  />
+                  <div className="add-auto-template-actions">
+                    <button className="btn-secondary" onClick={() => {
+                      setShowAddAutoTemplate(false);
+                      setNewAutoTemplateName('');
+                      setNewAutoTemplateIcon('✨');
+                      setNewAutoTemplatePrompt('');
+                    }}>
+                      取消
+                    </button>
+                    <button
+                      className="btn-primary"
+                      onClick={handleAddAutoTemplate}
+                      disabled={!newAutoTemplateName.trim() || !newAutoTemplatePrompt.trim()}
+                    >
+                      添加
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* 音效设置 */}
               <div className="settings-field">
                 <label>🔊 音效设置</label>
@@ -2167,6 +2652,68 @@ function App() {
                 </div>
                 <p className="settings-hint">
                   点击顶部 🔊 按钮可一键全部静音/恢复
+                </p>
+              </div>
+
+              {/* 虚拟摄像头设置 */}
+              <div className="settings-field">
+                <label>📹 虚拟摄像头</label>
+                <div
+                  className={`virtual-camera-toggle ${virtualCameraEnabled ? 'enabled' : 'disabled'}`}
+                  onClick={() => handleToggleVirtualCamera(!virtualCameraEnabled)}
+                >
+                  <div className="virtual-camera-toggle-info">
+                    <span className="virtual-camera-toggle-name">
+                      {virtualCameraEnabled ? '已开启' : '已关闭'}
+                    </span>
+                    <span className="virtual-camera-toggle-desc">
+                      用上传的图片/视频代替真实摄像头
+                    </span>
+                  </div>
+                  <div className={`virtual-camera-toggle-switch ${virtualCameraEnabled ? 'on' : 'off'}`}>
+                    {virtualCameraEnabled ? '开' : '关'}
+                  </div>
+                </div>
+
+                {/* 素材列表 */}
+                {virtualCameraEnabled && (
+                  <div className="virtual-media-list">
+                    {virtualMediaList.length === 0 ? (
+                      <p className="virtual-media-empty">暂无素材，请点击相机下方的「+」按钮上传</p>
+                    ) : (
+                      <>
+                        <p className="virtual-media-count">已上传 {virtualMediaList.length} 个素材</p>
+                        <div className="virtual-media-grid">
+                          {virtualMediaList.map((media) => (
+                            <div key={media.id} className="virtual-media-item">
+                              {media.type === 'video' ? (
+                                <div className="virtual-media-video-thumb">
+                                  {media.thumbnail ? (
+                                    <img src={media.thumbnail} alt="视频缩略图" />
+                                  ) : (
+                                    <span>🎬</span>
+                                  )}
+                                  <span className="video-badge">视频</span>
+                                </div>
+                              ) : (
+                                <img src={media.dataUrl} alt="素材" />
+                              )}
+                              <button
+                                className="virtual-media-delete"
+                                onClick={() => handleRemoveVirtualMedia(media.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <p className="settings-hint">
+                  开启后，上传的图片/视频将在取景框中循环播放
                 </p>
               </div>
 

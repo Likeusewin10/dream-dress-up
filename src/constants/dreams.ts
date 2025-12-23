@@ -9,6 +9,17 @@ export interface PromptTemplate {
 }
 
 /**
+ * 自动模式模板接口（无需用户输入梦想）
+ */
+export interface AutoTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  template: string;
+  isBuiltIn?: boolean; // 是否为内置模板（不可删除）
+}
+
+/**
  * 内置的提示词模板列表
  */
 export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
@@ -65,6 +76,85 @@ export const BUILT_IN_TEMPLATES: PromptTemplate[] = [
 
 // 兼容旧代码
 export const PROMPT_TEMPLATES = BUILT_IN_TEMPLATES;
+
+/**
+ * 内置的自动模式模板列表（无需用户输入梦想）
+ */
+export const BUILT_IN_AUTO_TEMPLATES: AutoTemplate[] = [
+  {
+    id: 'auto-princess',
+    name: '童话公主',
+    icon: '👸',
+    isBuiltIn: true,
+    template: `根据这张照片生成一张新图片。
+
+将照片中的人物变成迪士尼风格的童话公主/王子。
+
+要求：
+1. 保持人物的面部特征可辨认
+2. 穿上华丽的公主/王子礼服，戴上皇冠或头饰
+3. 背景是梦幻的童话城堡或花园
+4. 整体风格：迪士尼动画风格，梦幻、优雅、充满童话色彩
+5. 可以添加魔法光芒、星星等童话元素
+6. 输出高质量精美图片`,
+  },
+  {
+    id: 'auto-superhero',
+    name: '超级英雄',
+    icon: '🦸',
+    isBuiltIn: true,
+    template: `根据这张照片生成一张新图片。
+
+将照片中的人物变成漫威/DC风格的超级英雄。
+
+要求：
+1. 保持人物的面部特征可辨认
+2. 穿上炫酷的超级英雄战衣，可以有披风、面具等元素
+3. 背景是城市天际线或科幻场景
+4. 整体风格：美式漫画风格，酷炫、强大、充满力量感
+5. 可以添加能量光效、飞行姿态等超能力元素
+6. 输出高质量精美图片`,
+  },
+  {
+    id: 'auto-wizard',
+    name: '魔法师',
+    icon: '🧙',
+    isBuiltIn: true,
+    template: `根据这张照片生成一张新图片。
+
+将照片中的人物变成哈利波特风格的魔法师。
+
+要求：
+1. 保持人物的面部特征可辨认
+2. 穿上魔法长袍，戴上巫师帽，手持魔杖
+3. 背景是霍格沃茨风格的魔法城堡或神秘森林
+4. 整体风格：奇幻魔法风格，神秘、智慧、充满魔力
+5. 可以添加魔法光芒、飞舞的咒语、魔法生物等元素
+6. 输出高质量精美图片`,
+  },
+  {
+    id: 'auto-knight',
+    name: '侠客',
+    icon: '⚔️',
+    isBuiltIn: true,
+    template: `根据这张照片生成一张新图片。
+
+将照片中的人物变成中国古风侠客。
+
+要求：
+1. 保持人物的面部特征可辨认
+2. 穿上飘逸的古装侠客服饰，可以有斗篷、发带、佩剑等元素
+3. 背景是中国山水画风格的江湖场景，如竹林、古寺、悬崖、瀑布
+4. 整体风格：中国水墨武侠风格，飘逸、洒脱、仙气十足
+5. 可以添加剑气、落叶、云雾等武侠元素
+6. 输出高质量精美图片`,
+  },
+];
+
+/**
+ * 自动模板存储key
+ */
+export const AUTO_TEMPLATES_STORAGE_KEY = 'dream-dress-auto-templates';
 
 /**
  * 默认提示词模板（使用真实风格）
