@@ -580,7 +580,7 @@ function App() {
       setEditName('');
       setEditDream('');
     }
-  }, [capturedPhoto, triggerFlash, isAutoMode]);
+  }, [capturedPhoto, triggerFlash, isAutoMode, autoTemplates, currentAutoTemplateIndex]);
 
   // 上传照片
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -656,7 +656,7 @@ function App() {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  }, [capturedPhoto, enteringPhoto, triggerFlash, isAutoMode]);
+  }, [capturedPhoto, enteringPhoto, triggerFlash, isAutoMode, autoTemplates, currentAutoTemplateIndex]);
 
   // 虚拟摄像头：切换启用状态
   const handleToggleVirtualCamera = useCallback((enabled: boolean) => {
@@ -790,7 +790,7 @@ function App() {
         setEditDream('');
       }
     }
-  }, [virtualMediaList, currentMediaIndex, capturedPhoto, triggerFlash, isAutoMode]);
+  }, [virtualMediaList, currentMediaIndex, capturedPhoto, triggerFlash, isAutoMode, autoTemplates, currentAutoTemplateIndex]);
 
   // 单张胶片的弹出和生成逻辑
   const ejectAndGenerateFilm = async (film: FilmPhoto, customPromptOverride?: string) => {
@@ -2133,9 +2133,6 @@ function App() {
             {/* 相机闪光灯 */}
             {showFlash && <div className="camera-flashlight" />}
 
-            {/* 全屏闪光效果 */}
-            {showFlash && <div className="camera-flash" />}
-
             {/* 模板切换提示 */}
             {templateToast && (
               <div className="template-toast">
@@ -2310,6 +2307,9 @@ function App() {
             </button>
           </div>
         ))}
+
+        {/* 全屏闪光效果 - 放在 camera-wrapper 外面避免 transform 影响 fixed 定位 */}
+        {showFlash && <div className="camera-flash" />}
       </main>
 
       {/* 隐藏的文件输入 */}
