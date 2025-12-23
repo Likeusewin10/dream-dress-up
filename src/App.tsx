@@ -156,6 +156,12 @@ function App() {
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [autoTemplates, setAutoTemplates] = useState<AutoTemplate[]>(BUILT_IN_AUTO_TEMPLATES);
   const [currentAutoTemplateIndex, setCurrentAutoTemplateIndex] = useState(0);
+  const autoTemplateIndexRef = useRef(currentAutoTemplateIndex); // 用于在闭包中获取最新值
+
+  // 同步 ref 与 state
+  useEffect(() => {
+    autoTemplateIndexRef.current = currentAutoTemplateIndex;
+  }, [currentAutoTemplateIndex]);
 
   // API设置
   const [showSettings, setShowSettings] = useState(false);
@@ -1038,7 +1044,9 @@ function App() {
       return;
     }
 
-    const currentAutoTemplate = autoTemplates[currentAutoTemplateIndex];
+    // 使用 ref 获取最新的模板索引，避免闭包问题
+    const templateIndex = autoTemplateIndexRef.current;
+    const currentAutoTemplate = autoTemplates[templateIndex];
     const now = new Date();
     const dateStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
 
