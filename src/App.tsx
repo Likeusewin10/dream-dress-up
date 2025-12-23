@@ -2133,9 +2133,6 @@ function App() {
             {/* 相机闪光灯 */}
             {showFlash && <div className="camera-flashlight" />}
 
-            {/* 全屏闪光效果 */}
-            {showFlash && <div className="camera-flash" />}
-
             {/* 模板切换提示 */}
             {templateToast && (
               <div className="template-toast">
@@ -2311,6 +2308,9 @@ function App() {
           </div>
         ))}
       </main>
+
+      {/* 全屏闪光效果 - 放在 camera-wrapper 外部避免 transform 影响 position: fixed */}
+      {showFlash && <div className="camera-flash" />}
 
       {/* 隐藏的文件输入 */}
       <input
