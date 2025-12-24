@@ -96,6 +96,7 @@ npm run build
 3. 通过 URL 参数 (JSON): `?settings={"key":"your-api-key","url":"https://api.example.com/v1"}`
 
 API Key 获取地址: https://api.tu-zi.com/token
+[API Key 获取教程](https://wiki.tu-zi.com/s/8c61a536-7a59-4410-a5e2-8dab3d041958/doc/api-Q76TllZEfR)
 
 ## 使用说明
 
