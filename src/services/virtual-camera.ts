@@ -4,6 +4,7 @@
  */
 
 import type { VirtualMedia } from '../types';
+export type { VirtualMedia };
 
 const STORAGE_KEY = 'dream-dress-virtual-camera';
 const ENABLED_KEY = 'dream-dress-virtual-camera-enabled';
