@@ -1443,7 +1443,11 @@ function App() {
     try {
       const response = await fetch(sharePreview);
       const blob = await response.blob();
-      const filename = `梦想变装-${selectedHistoryItem.name}-${Date.now()}.png`;
+      // 文件名格式：梦想文案-时间
+      const date = new Date(selectedHistoryItem.timestamp);
+      const timeStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+      const dreamText = selectedHistoryItem.dream.slice(0, 20).replace(/[\\/:*?"<>|]/g, ''); // 截取前20字符，移除非法文件名字符
+      const filename = `${dreamText}-${timeStr}.png`;
       downloadImage(blob, filename);
       playSound('complete');
     } catch (e) {

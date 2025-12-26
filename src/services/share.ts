@@ -44,12 +44,12 @@ export async function generateShareCard(data: ShareCardData): Promise<Blob> {
   ctx.lineWidth = 2;
   ctx.strokeRect(20, 20, cardWidth - 40, cardHeight - 40);
 
-  // 顶部装饰线
+  // 顶部装饰线（贯通整个边框）
   ctx.strokeStyle = '#d4c4b5';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(padding, 80);
-  ctx.lineTo(cardWidth - padding, 80);
+  ctx.moveTo(20, 80);
+  ctx.lineTo(cardWidth - 20, 80);
   ctx.stroke();
 
   // 标题
@@ -130,8 +130,8 @@ export async function generateShareCard(data: ShareCardData): Promise<Blob> {
     ctx.fillText(line, cardWidth / 2, infoY + index * 32);
   });
 
-  // 底部日期和水印
-  const bottomY = cardHeight - 50;
+  // 底部日期和水印（保持在边框内，边框底部在 cardHeight - 40 = 920）
+  const bottomY = cardHeight - 75;
   ctx.fillStyle = '#a09080';
   ctx.font = '18px "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
@@ -143,11 +143,11 @@ export async function generateShareCard(data: ShareCardData): Promise<Blob> {
   });
   ctx.fillText(dateStr, cardWidth / 2, bottomY);
 
-  // 水印（网站域名）- 更大更明显
+  // 水印（网站域名）
   ctx.fillStyle = '#8a7a6a';
-  ctx.font = 'bold 22px "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.font = 'bold 20px "PingFang SC", "Microsoft YaHei", sans-serif';
   const domain = window.location.host || 'dream-dress-up';
-  ctx.fillText(`🌟 ${domain}`, cardWidth / 2, bottomY + 30);
+  ctx.fillText(`🌟 ${domain}`, cardWidth / 2, bottomY + 28);
 
   // 转换为 Blob
   return new Promise((resolve, reject) => {
