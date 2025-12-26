@@ -7,11 +7,15 @@ import type { ApiConfig } from '../types';
 
 const STORAGE_KEY = 'dream-dress-settings';
 
+// 从环境变量读取默认配置
+const ENV_API_URL = import.meta.env.VITE_API_URL as string | undefined;
+const ENV_API_MODEL = import.meta.env.VITE_API_MODEL as string | undefined;
+
 // 默认配置
 const DEFAULT_CONFIG: ApiConfig = {
   apiKey: '',
-  baseUrl: 'https://api.tu-zi.com/v1',
-  modelName: 'gemini-3-pro-image-preview-vip',
+  baseUrl: ENV_API_URL || 'https://api.tu-zi.com/v1',
+  modelName: ENV_API_MODEL || 'gemini-3-pro-image-preview-vip',
   timeout: 10 * 60 * 1000, // 10分钟
 };
 

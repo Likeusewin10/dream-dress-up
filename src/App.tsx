@@ -43,6 +43,14 @@ import {
   getStorageInfo,
   type ProgressCallback,
 } from './services/image-storage';
+import {
+  initGA,
+  getAnalyticsConsent,
+  setAnalyticsConsent,
+  hasGAConfig,
+  trackEvent,
+  AnalyticsEvents,
+} from './services/analytics';
 import './App.css';
 
 // 胶片/照片类型（在画板上）
@@ -133,6 +141,9 @@ function App() {
 
   // 音效设置状态
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(() => getSoundSettings());
+
+  // 统计设置状态
+  const [analyticsConsent, setAnalyticsConsentState] = useState(() => getAnalyticsConsent());
 
   // 虚拟摄像头状态
   const [virtualCameraEnabled, setVirtualCameraEnabledState] = useState(() => isVirtualCameraEnabled());
@@ -251,6 +262,9 @@ function App() {
 
     // 初始化音频系统（预加载自定义音效）
     initAudio();
+
+    // 初始化 Google Analytics（根据用户隐私设置）
+    initGA();
 
     // 加载相机位置
     try {
@@ -550,6 +564,7 @@ function App() {
 
     // 播放快门音效
     playSound('shutter');
+    trackEvent(AnalyticsEvents.PHOTO_CAPTURE);
 
     // 触发闪光效果
     triggerFlash();
@@ -856,6 +871,7 @@ function App() {
               stopDevelopingSound();
             }
             playSound('complete');
+            trackEvent(AnalyticsEvents.GENERATE_SUCCESS);
 
             // 使用 ref 防止重复添加（React 并发模式可能多次调用 setState 回调）
             if (addedHistoryIdsRef.current.has(filmId)) return;
@@ -940,6 +956,7 @@ function App() {
       const errorMsg = e.message || '生成失败，请重试';
       setError(errorMsg);
       playSound('error');
+      trackEvent(AnalyticsEvents.GENERATE_FAIL, { error: errorMsg });
       setFilms(prev => prev.map(f =>
         f.id === filmId
           ? { ...f, isGenerating: false, isFailed: true, errorMessage: errorMsg }
@@ -2791,6 +2808,37 @@ function App() {
                   导出包含：历史照片图片、相机位置、自定义模板、音效设置、API 设置
                 </p>
               </div>
+
+              {/* 隐私设置 */}
+              {hasGAConfig() && (
+                <div className="settings-field">
+                  <label>🔒 隐私设置</label>
+                  <div
+                    className={`privacy-toggle ${analyticsConsent ? 'enabled' : 'disabled'}`}
+                    onClick={() => {
+                      playSound('click');
+                      const newConsent = !analyticsConsent;
+                      setAnalyticsConsentState(newConsent);
+                      setAnalyticsConsent(newConsent);
+                    }}
+                  >
+                    <div className="privacy-toggle-info">
+                      <span className="privacy-toggle-name">
+                        参与使用统计
+                      </span>
+                      <span className="privacy-toggle-desc">
+                        帮助我们改进产品体验（匿名数据）
+                      </span>
+                    </div>
+                    <div className={`privacy-toggle-switch ${analyticsConsent ? 'on' : 'off'}`}>
+                      {analyticsConsent ? '开' : '关'}
+                    </div>
+                  </div>
+                  <p className="settings-hint">
+                    开启后将收集匿名使用数据（如功能使用频率），不会收集任何个人信息或照片内容
+                  </p>
+                </div>
+              )}
 
               <button
                 className="btn-primary"
